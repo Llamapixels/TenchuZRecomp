@@ -51,7 +51,7 @@ CAMERA  (F6 > Camera)
 
 
 CONTROLLER  (F6 > Controller)
------------------------------
+-----------------------------------------------------------------
   [test] Button remapping - any game button can be fed by any button or
          trigger. Saved as button_map in tenchuz.toml.
   [test] Left / right stick deadzones (game default 24% / 27%).
@@ -237,19 +237,32 @@ LAUNCHER  (tools\launcher\Tenchu Z Launcher.cmd)
 
 RELEASE  (tools\package_release.ps1)
 ------------------------------------
+  [ok]   Version 0.1.0-alpha: the window title reads "Tenchu Z - HoloCatt
+         Recomp Project - v0.1.0-alpha"; the F6 menu shows the version too
+         (tenchuz-recomp/src/version.h).
+  [ok]   Setup checks the game version (SHA-1 of default.xex: Tenchu Z USA/
+         Europe) before extracting, and rejects files that aren't Xbox 360
+         disc images.
+  [ok]   Keyboard and mouse on by default in the release settings
+         (mnk_mode), so the keyboard works however the game is started.
+  [ok]   F6 > Tools (memory scanner, camera probe) hidden unless
+         developer_tools = true in tenchuz.toml.
+  [ok]   Public source and releases: github.com/Llamapixels/TenchuZRecomp
+         (MIT license; no game files or generated code).
   [ok]   Release zip: release\TenchuZ-PC-<date>.zip (about 15 MB). Holds the
          port, the Visual C++ runtime, setup and launcher, a clean
          tenchuz.toml, the shader presets, docs and licenses. No game files;
          the packaging script refuses to include any.
-  [ok]   "Setup Tenchu Z.cmd" (toolselease\setup.ps1): extracts the
+  [ok]   "Setup Tenchu Z.cmd" (tools
+elease\setup.ps1): extracts the
          player's own Tenchu Z .iso into extracted\ (no extra programs) and
          creates the profile settings the game needs. Verified: unzipped
          release + ISO -> identical game files, game starts with the Modern
          Look preset.
   [ok]   README.txt in the release: setup, playing, hotkeys, online.
 
-DEVELOPER TOOLS  (F6 > Tools)
------------------------------
+DEVELOPER TOOLS  (F6 > Tools, only with developer_tools = true)
+-----------------------------------------------------------------
   [ok]   Camera probe: finds camera data by turning the camera and diffing
          memory; writes camera_probe_<date>_<time>.txt.
   [ok]   Memory scanner with watch list and pinning.
