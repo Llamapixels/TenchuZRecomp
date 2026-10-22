@@ -51,7 +51,7 @@ CAMERA  (F6 > Camera)
 
 
 CONTROLLER  (F6 > Controller)
------------------------------------------------------------------
+-----------------------------
   [test] Button remapping - any game button can be fed by any button or
          trigger. Saved as button_map in tenchuz.toml.
   [test] Left / right stick deadzones (game default 24% / 27%).
