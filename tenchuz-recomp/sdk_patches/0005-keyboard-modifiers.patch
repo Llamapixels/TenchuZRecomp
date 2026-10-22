@@ -1,0 +1,195 @@
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+index 3f9422d..ad8508f 100644
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -18,6 +18,7 @@
+ #include <rex/ui/window.h>
+ 
+ #include <algorithm>
++#include <vector>
+ #include <cmath>
+ #include <cstdlib>
+ #include <cstring>
+@@ -122,17 +123,54 @@ std::string_view TrimSpaces(std::string_view s) {
+   return s;
+ }
+ 
+-bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods) {
++bool IsModifierKey(rex::ui::VirtualKey vk) {
++  return vk == rex::ui::VirtualKey::kShift || vk == rex::ui::VirtualKey::kControl ||
++         vk == rex::ui::VirtualKey::kMenu;
++}
++
++// TENCHUZ: key + modifier combinations that some bind spells out (e.g.
++// "Shift+Up" for the D-pad), as (mods << 8) | key. A bare token ("Up") only
++// gives way to those while the same modifiers are held, instead of to any
++// held modifier, so a key still works while Shift is held for another bind.
++using ChordSet = std::vector<uint16_t>;
++
++bool TokenPressed(const bool (&key_down)[256], std::string_view token, uint8_t live_mods,
++                  const ChordSet& chords) {
+   uint8_t want = TakeModifiers(token);
+-  if (want != live_mods) {
+-    return false;
+-  }
+   rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
+   if (vk == rex::ui::VirtualKey::kNone) {
+     return false;
+   }
+   uint16_t idx = static_cast<uint16_t>(vk);
+-  return idx < 256 && key_down[idx];
++  if (idx >= 256 || !key_down[idx]) {
++    return false;
++  }
++  // A bare modifier ("Shift") is a key of its own.
++  if (want == 0 && IsModifierKey(vk)) {
++    return true;
++  }
++  if (want != 0) {
++    return want == live_mods;
++  }
++  if (live_mods == 0) {
++    return true;
++  }
++  const uint16_t chord = static_cast<uint16_t>((live_mods << 8) | idx);
++  return std::find(chords.begin(), chords.end(), chord) == chords.end();
++}
++
++// Adds the modifier+key combinations spelled out in one bind value.
++void CollectChords(std::string_view value, ChordSet& chords) {
++  while (!value.empty()) {
++    size_t comma = value.find(',');
++    std::string_view token = TrimSpaces(value.substr(0, comma));
++    value = comma == std::string_view::npos ? std::string_view() : value.substr(comma + 1);
++    uint8_t mods = TakeModifiers(token);
++    rex::ui::VirtualKey vk = rex::ui::ParseVirtualKey(token);
++    if (mods != 0 && vk != rex::ui::VirtualKey::kNone && static_cast<uint16_t>(vk) < 256) {
++      chords.push_back(static_cast<uint16_t>((mods << 8) | static_cast<uint16_t>(vk)));
++    }
++  }
+ }
+ 
+ std::atomic<bool> mouse_look_active{true};
+@@ -200,7 +238,8 @@ bool MnkInputDriver::IsEnabled() const {
+   return REXCVAR_GET(mnk_mode);
+ }
+ 
+-static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_val) {
++static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_val,
++                          const ChordSet& chords) {
+   const uint8_t live_mods = LiveModifiers(key_down);
+   std::string_view rest(cvar_val);
+   while (!rest.empty()) {
+@@ -212,7 +251,7 @@ static bool IsBindPressed(const bool (&key_down)[256], const std::string& cvar_v
+       rest.remove_prefix(comma + 1);
+     }
+     token = TrimSpaces(token);
+-    if (!token.empty() && TokenPressed(key_down, token, live_mods)) {
++    if (!token.empty() && TokenPressed(key_down, token, live_mods, chords)) {
+       return true;
+     }
+   }
+@@ -274,61 +313,78 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+ 
+   std::lock_guard lock(state_mutex_);
+ 
++  ChordSet chords;
++  for (const std::string* bind :
++       {&REXCVAR_GET(keybind_a), &REXCVAR_GET(keybind_b), &REXCVAR_GET(keybind_x),
++        &REXCVAR_GET(keybind_y), &REXCVAR_GET(keybind_left_shoulder),
++        &REXCVAR_GET(keybind_right_shoulder), &REXCVAR_GET(keybind_left_trigger),
++        &REXCVAR_GET(keybind_right_trigger), &REXCVAR_GET(keybind_lstick_press),
++        &REXCVAR_GET(keybind_rstick_press), &REXCVAR_GET(keybind_back),
++        &REXCVAR_GET(keybind_start), &REXCVAR_GET(keybind_guide), &REXCVAR_GET(keybind_dpad_up),
++        &REXCVAR_GET(keybind_dpad_down), &REXCVAR_GET(keybind_dpad_left),
++        &REXCVAR_GET(keybind_dpad_right), &REXCVAR_GET(keybind_lstick_up),
++        &REXCVAR_GET(keybind_lstick_down), &REXCVAR_GET(keybind_lstick_left),
++        &REXCVAR_GET(keybind_lstick_right), &REXCVAR_GET(keybind_rstick_up),
++        &REXCVAR_GET(keybind_rstick_down), &REXCVAR_GET(keybind_rstick_left),
++        &REXCVAR_GET(keybind_rstick_right)}) {
++    CollectChords(*bind, chords);
++  }
++
+   uint16_t buttons = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_a)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_a), chords))
+     buttons |= X_INPUT_GAMEPAD_A;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_b)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_b), chords))
+     buttons |= X_INPUT_GAMEPAD_B;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_x)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_x), chords))
+     buttons |= X_INPUT_GAMEPAD_X;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_y)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_y), chords))
+     buttons |= X_INPUT_GAMEPAD_Y;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_left_shoulder)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_left_shoulder), chords))
+     buttons |= X_INPUT_GAMEPAD_LEFT_SHOULDER;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_right_shoulder)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_right_shoulder), chords))
+     buttons |= X_INPUT_GAMEPAD_RIGHT_SHOULDER;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_press)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_press), chords))
+     buttons |= X_INPUT_GAMEPAD_LEFT_THUMB;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_press)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_press), chords))
+     buttons |= X_INPUT_GAMEPAD_RIGHT_THUMB;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_back)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_back), chords))
+     buttons |= X_INPUT_GAMEPAD_BACK;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_start)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_start), chords))
+     buttons |= X_INPUT_GAMEPAD_START;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_guide)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_guide), chords))
+     buttons |= X_INPUT_GAMEPAD_GUIDE;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_up)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_up), chords))
+     buttons |= X_INPUT_GAMEPAD_DPAD_UP;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_down)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_down), chords))
+     buttons |= X_INPUT_GAMEPAD_DPAD_DOWN;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_left)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_left), chords))
+     buttons |= X_INPUT_GAMEPAD_DPAD_LEFT;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_right)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_dpad_right), chords))
+     buttons |= X_INPUT_GAMEPAD_DPAD_RIGHT;
+ 
+-  uint8_t lt = IsBindPressed(key_down_, REXCVAR_GET(keybind_left_trigger)) ? 0xFF : 0;
+-  uint8_t rt = IsBindPressed(key_down_, REXCVAR_GET(keybind_right_trigger)) ? 0xFF : 0;
++  uint8_t lt = IsBindPressed(key_down_, REXCVAR_GET(keybind_left_trigger), chords) ? 0xFF : 0;
++  uint8_t rt = IsBindPressed(key_down_, REXCVAR_GET(keybind_right_trigger), chords) ? 0xFF : 0;
+ 
+   int32_t lx = 0;
+   int32_t ly = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_left)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_left), chords))
+     lx -= INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_right)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_right), chords))
+     lx += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_up)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_up), chords))
+     ly += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_down)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_lstick_down), chords))
+     ly -= INT16_MAX;
+ 
+   int32_t rx = 0;
+   int32_t ry = 0;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_left)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_left), chords))
+     rx -= INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_right)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_right), chords))
+     rx += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_up)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_up), chords))
+     ry += INT16_MAX;
+-  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_down)))
++  if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_down), chords))
+     ry -= INT16_MAX;
+ 
+   if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {

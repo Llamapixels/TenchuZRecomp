@@ -108,3 +108,13 @@ rexglue codegen --ignore-stamp tenchuz_manifest.toml
 
 in `tenchuz-recomp` (rexglue.exe is in `rexglue-sdk\out\install\win-amd64\bin`),
 then `tools\build_tenchuz.bat`.
+
+## SDK patch 5: keyboard modifier keys (2026-10-22)
+
+Saved as `tenchuz-recomp/sdk_patches/0005-keyboard-modifiers.patch`
+(`src/input/mnk/mnk_input_driver.cpp`). Key binds used to require the held
+modifiers to match exactly, so any bind stopped working while Shift, Control
+or Alt was held, and a bare modifier could not be bound. Now a bare modifier
+("Shift") is a key of its own, and a bare key only gives way to a bind that
+spells out the held modifiers with it (the D-pad's "Shift+Up" still wins over
+"Up" while Shift is held).

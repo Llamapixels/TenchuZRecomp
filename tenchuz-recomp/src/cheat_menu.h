@@ -70,6 +70,7 @@
 #include "controller.h"
 #include "cheat_scanner.h"
 #include "gameplay.h"
+#include "key_bindings.h"
 #include "net_settings.h"
 #include "photo_mode.h"
 #include "settings_store.h"
@@ -1028,6 +1029,127 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       Save({"rumble_strength"});
     }
     ImGui::TextDisabled("0%% turns rumble off.");
+
+    DrawKeyBindings();
+  }
+
+  // Keyboard and mouse keys for each controller input (key_bindings.h).
+  // Set takes the next key or mouse button; + adds another; changes apply
+  // at once and are saved to tenchuz.toml.
+  void DrawKeyBindings() {
+    ImGui::Separator();
+    ImGui::TextUnformatted("Keyboard & mouse keys");
+    if (!rex::cvar::Query<bool>("mnk_mode")) {
+      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1.0f),
+                         "Keyboard & mouse mode is off (mnk_mode = false in "
+                         "tenchuz.toml); these keys do nothing until it is on.");
+    }
+    ImGui::TextDisabled(
+        "Set: press the key or mouse button to use (Shift/Ctrl/Alt + key "
+        "works too). +: add another key. Esc cancels.");
+
+    const auto& binds = key_bindings::binds();
+    std::string captured;
+    if (key_capture_.active() && key_capture_.Poll(&captured)) {
+      if (!captured.empty() && capture_index_ < binds.size()) {
+        const auto& bind = binds[capture_index_];
+        std::vector<std::string> list =
+            capture_add_ ? key_bindings::keys(bind) : std::vector<std::string>{};
+        if (std::find(list.begin(), list.end(), captured) == list.end()) {
+          list.push_back(captured);
+        }
+        key_bindings::set_keys(bind, list);
+        Save({bind.cvar});
+        key_note_ = KeyNote(captured, bind.cvar);
+      }
+    }
+
+    if (ImGui::BeginTable("key_bindings", 3,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+      ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 130);
+      ImGui::TableSetupColumn("Keys", ImGuiTableColumnFlags_WidthFixed, 230);
+      ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 150);
+      ImGui::TableHeadersRow();
+      for (size_t i = 0; i < binds.size(); ++i) {
+        const auto& bind = binds[i];
+        ImGui::PushID(bind.cvar);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(bind.label);
+        ImGui::TableNextColumn();
+        if (key_capture_.active() && capture_index_ == i) {
+          ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Press a key or button...");
+        } else {
+          std::string shown;
+          for (const std::string& key : key_bindings::keys(bind)) {
+            shown += (shown.empty() ? "" : ", ") + key;
+          }
+          ImGui::TextUnformatted(shown.empty() ? "-" : shown.c_str());
+        }
+        ImGui::TableNextColumn();
+        ImGui::BeginDisabled(key_capture_.active());
+        if (ImGui::SmallButton("Set")) {
+          capture_index_ = i;
+          capture_add_ = false;
+          key_capture_.Start();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+")) {
+          capture_index_ = i;
+          capture_add_ = true;
+          key_capture_.Start();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear")) {
+          key_bindings::set_keys(bind, {});
+          Save({bind.cvar});
+        }
+        ImGui::EndDisabled();
+        ImGui::PopID();
+      }
+      ImGui::EndTable();
+    }
+    if (key_capture_.active()) {
+      if (ImGui::Button("Cancel##keys")) {
+        key_capture_.Cancel();
+      }
+    } else if (ImGui::Button("Reset keys to defaults")) {
+      std::vector<std::string> names;
+      for (const auto& bind : binds) {
+        rex::cvar::SetFlagByName(bind.cvar, bind.default_keys);
+        names.push_back(bind.cvar);
+      }
+      if (!exe_dir_.empty()) {
+        SaveSettings(exe_dir_ / "tenchuz.toml", names);
+      }
+      key_note_ = "Keys reset to the defaults.";
+    }
+    if (!key_note_.empty()) {
+      ImGui::TextWrapped("%s", key_note_.c_str());
+    }
+  }
+
+  // After a key is set: where else it is used, if anywhere.
+  std::string KeyNote(const std::string& key, const char* set_cvar) {
+    std::string note = key + " set.";
+    std::string others;
+    for (const auto& bind : key_bindings::binds()) {
+      if (std::string(bind.cvar) == set_cvar) continue;
+      for (const std::string& k : key_bindings::keys(bind)) {
+        if (k == key) others += (others.empty() ? "" : ", ") + std::string(bind.label);
+      }
+    }
+    if (!others.empty()) {
+      note += " Also used for: " + others + ".";
+    }
+    static const char* const kHotkeys[] = {"F1", "F2", "F5", "F8", "F9", "F10"};
+    for (const char* hotkey : kHotkeys) {
+      if (key == hotkey) {
+        note += " It is also a Tenchu Z hotkey (F1/F2 positions, F5 health, F8 god "
+                "mode, F9 mouse look, F10 photo mode); both happen.";
+      }
+    }
+    return note;
   }
 
   // ---------------------------------------------------------------------
@@ -1574,6 +1696,10 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   bool online_loaded_ = false;
   char join_ip_buf_[128] = {0};
   char bind_ip_buf_[32] = {0};
+  key_bindings::Capture key_capture_;
+  size_t capture_index_ = 0;
+  bool capture_add_ = false;
+  std::string key_note_;
   bool start_hint_done_ = false;
   std::chrono::steady_clock::time_point start_hint_since_{};
   char code_buf_[16] = {0};

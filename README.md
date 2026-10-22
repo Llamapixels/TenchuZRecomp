@@ -55,14 +55,13 @@ so far.
 | ✅ | **Render scale** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | 1x to 7x internal resolution (3x = 3840x2160) |
 | ✅ | **Sound and music** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | Including mute when the window is in the background |
 | ✅ | **Controllers** | ![90%](https://progress-bar.xyz/90/?width=150&style=square&progress_color=5cb85c) | Any controller; button remapping, stick deadzones and rumble strength in F6 > Controller (remapping needs more testing) |
-| 🔧 | **Keyboard and mouse** | ![70%](https://progress-bar.xyz/70/?width=150&style=square&progress_color=5cb85c) | Default keys and mouse look work; keys can be changed in `tenchuz.toml` only, an in-game menu is next |
+| ✅ | **Keyboard and mouse** | ![95%](https://progress-bar.xyz/95/?width=150&style=square&progress_color=5cb85c) | Rebind every controller input in F6 > Controller by pressing the key or mouse button; mouse look |
 | ✅ | **System Link co-op over the internet** | ![85%](https://progress-bar.xyz/85/?width=150&style=square&progress_color=5cb85c) | Join codes, automatic router setup (UPnP), player names; tested with two copies on one PC, not yet between two PCs |
 | ✅ | **Shader presets** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | "Modern Look" (sharpening, bloom, ambient occlusion, haze, depth of field, puddles) and "Manga", with live sliders |
 | ✅ | **Mods** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | `mods\` folder for replacement files and custom shaders, without touching the game files |
 | ✅ | **Extras** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | Cheats, damage multipliers, camera FOV and distance, photo mode, speedrun timer with splits, info overlay |
 | 🔧 | **Tested in game** | ![15%](https://progress-bar.xyz/15/?width=150&style=square&progress_color=d9534f) | The hub and the first missions; the rest is untested: [report what breaks](../../issues/new/choose) |
 | 🔧 | **Other graphics cards** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | AMD and Intel GPUs untested: reports welcome |
-| 🗺️ | **Keyboard remapping menu** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | Planned: change keys in F6 instead of the settings file |
 | 🗺️ | **River water in Modern Look** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | The water shader improves puddles only; rivers look as on the Xbox |
 | 🗺️ | **Voice chat** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | Not planned: use Discord or similar |
 
@@ -84,8 +83,9 @@ LAN (ZeroTier, Radmin VPN, Tailscale). All details: [docs/multiplayer.md](docs/m
 
 ## Controls
 
-Any controller works. Keyboard and mouse defaults (each key can be changed with the `keybind_*` settings in
-`tenchuz.toml`, for example `keybind_a = "Space"`):
+Any controller works. Keyboard and mouse: change any key in **F6 > Controller > Keyboard & mouse keys**. Press
+**Set** and then the key or mouse button you want (Shift/Ctrl/Alt + key works too, and so do Shift, Ctrl or Alt on
+their own); **+** adds a second key for the same input. Mouse look is in F6 > Camera. The defaults:
 
 | Xbox button | Keys | Xbox button | Keys |
 |---|---|---|---|

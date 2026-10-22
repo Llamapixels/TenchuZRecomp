@@ -56,6 +56,14 @@ CONTROLLER  (F6 > Controller)
          trigger. Saved as button_map in tenchuz.toml.
   [test] Left / right stick deadzones (game default 24% / 27%).
   [test] Rumble strength 0% (off) - 200%.
+  [ok]   Keyboard & mouse keys (2026-10-22): every controller input can be
+         bound to keys or mouse buttons in F6 > Controller. Set takes the
+         next key or mouse button pressed (with Shift/Ctrl/Alt held, or a
+         modifier on its own); + adds another key; Clear; Reset to
+         defaults. Warns when a key is used twice or is an F-key hotkey.
+         Applies at once, saved as keybind_* in tenchuz.toml.
+  [ok]   Fixed: a key stopped working while Shift/Ctrl/Alt was held, and a
+         modifier could not be bound on its own (SDK patch 5).
 
 
 SPEEDRUN  (F6 > Speedrun)

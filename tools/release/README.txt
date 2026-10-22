@@ -39,7 +39,8 @@ PLAYING
 - Keep the frame rate at 60 Hz with vsync on: the game runs its clock off
   the frame rate, so other values change the game speed.
 
-Keyboard (change keys with the keybind_* lines in tenchuz.toml):
+Keyboard defaults (change any key in F6 > Controller > Keyboard & mouse
+keys: press Set, then the key or mouse button you want):
   Move W A S D            Camera arrow keys (or the mouse: F6 > Camera)
   A    Space or ;         B      Backspace or '
   X    L                  Y      P

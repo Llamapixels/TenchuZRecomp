@@ -24,6 +24,7 @@ set(TENCHUZ_SOURCES
     src/shader_settings.cpp
     src/net_settings.cpp
     src/upnp.cpp
+    src/key_bindings.cpp
 )
 
 if(WIN32)

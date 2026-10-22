@@ -30,6 +30,7 @@ git; never share it).
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0002-system-link.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0003-menu-modifier-keys.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0004-vector-pack-aliasing.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0005-keyboard-modifiers.patch
    ```
    (adjust the path to where you cloned this repository).
 3. Configure once with the SDK's `win-amd64` preset, then build and install it with `tools\build_sdk.bat` from this
@@ -66,6 +67,6 @@ it refuses to include any). The version comes from `tenchuz-recomp/src/version.h
 - `tenchuz-recomp/src/`: the game-specific code (hooks, F6 menu, online, mods, shader presets, setup paths).
 - `tenchuz-recomp/tenchuz_manifest.toml`: function boundaries and entry points for the recompiler.
 - `tenchuz-recomp/sdk_patches/`: changes to the ReXGlue SDK (shader overrides, System Link over IP, menu keys,
-  a recompiler fix).
+  a recompiler fix, keyboard modifier keys).
 - `tools/`: build, release, setup and analysis scripts.
 - `docs/`: guides; `docs/development-notes.md` has older development notes.
