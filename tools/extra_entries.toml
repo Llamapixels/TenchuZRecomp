@@ -1,0 +1,67 @@
+# Hand-maintained function-boundary extras.
+#
+# Two categories of address land here:
+#   1. codegen `Unresolved b target` / `Unresolved conditional branch` targets
+#      (branch destinations the analyzer saw but did not treat as functions).
+#   2. Runtime `[FATAL] Call to invalid or unregistered function` addresses
+#      observed during boot tests -- guest call targets the static scan did not
+#      cover (materialized from immediates, or function-table boundaries).
+#
+# tools/generate_manifest.py merges this file into the manifest.
+0x824805B0 = { name = "extra_824805B0" }
+0x825FFFAC = { name = "extra_825FFFAC" }
+0x8260F5AC = { name = "extra_8260F5AC" }
+0x8260F6A4 = { name = "extra_8260F6A4" }
+0x82649F64 = { name = "extra_82649F64" }
+0x82658200 = { name = "extra_82658200" }
+0x826596D8 = { name = "extra_826596D8" }
+0x8266179C = { name = "extra_8266179C" }
+0x82662A30 = { name = "extra_82662A30" }
+0x82665CC4 = { name = "extra_82665CC4" }
+0x82665CE0 = { name = "extra_82665CE0" }
+0x82665E3C = { name = "extra_82665E3C" }
+0x8268FB20 = { name = "extra_8268FB20" }
+0x8281BB14 = { name = "extra_8281BB14" }
+0x8267C418 = { name = "extra_8267C418" }
+0x82314538 = { name = "extra_82314538" }
+0x8232FCC0 = { name = "extra_8232FCC0" }
+0x82357610 = { name = "extra_82357610" }
+
+
+# --- Code-materialised callback arguments (batch 2026-10-19) ---------------
+# Third category: callbacks built in CODE and passed as an argument to a
+# registration routine, so they never appear in .rdata and
+# derive_fnptr_targets.py cannot see them. Example 0x823B8720:
+#   addis r5, r0, 0x823C ; addi r5, r5, 0x8720 ; bl 0x822A2100
+# Observed as: [FATAL] Call to invalid or unregistered function 0x823B8720
+# Every one of these is also listed in entry_points_keep.toml, which is what
+# makes generate_manifest.py keep them instead of classifying them as
+# intra-function LABELs (they are all leaf functions that .pdata omits).
+# Provenance + safety checks: tools/scan_fnptr_args.py,
+# tools/verify_fnptr_candidates.py, tools/check_branch_targets.py.
+
+0x82270480 = { name = "extra_82270480" }
+0x822704E8 = { name = "extra_822704E8" }
+0x82283A70 = { name = "extra_82283A70" }
+0x82283BC0 = { name = "extra_82283BC0" }
+0x8229DDC8 = { name = "extra_8229DDC8" }
+0x8229E5A0 = { name = "extra_8229E5A0" }
+0x8229E8F8 = { name = "extra_8229E8F8" }
+0x8229EC08 = { name = "extra_8229EC08" }
+0x822A26B0 = { name = "extra_822A26B0" }
+0x822E9DD8 = { name = "extra_822E9DD8" }
+0x822E9F18 = { name = "extra_822E9F18" }
+0x8231CA48 = { name = "extra_8231CA48" }
+0x8231CAD8 = { name = "extra_8231CAD8" }
+0x82367BD8 = { name = "extra_82367BD8" }
+0x823709B0 = { name = "extra_823709B0" }
+0x823A5BF0 = { name = "extra_823A5BF0" }
+0x823A5C18 = { name = "extra_823A5C18" }
+0x823AAF00 = { name = "extra_823AAF00" }
+0x823B8720 = { name = "extra_823B8720" }
+0x823DDC00 = { name = "extra_823DDC00" }
+0x823FB9D0 = { name = "extra_823FB9D0" }
+0x823FC348 = { name = "extra_823FC348" }
+0x82431DF8 = { name = "extra_82431DF8" }
+0x82717A80 = { name = "extra_82717A80" }
+0x827F7EB8 = { name = "extra_827F7EB8" }

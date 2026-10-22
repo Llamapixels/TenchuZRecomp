@@ -1,0 +1,792 @@
+diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+index 3b0fd61..da4e5e9 100644
+--- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
++++ b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+@@ -388,6 +388,11 @@ class DxbcShaderTranslator : public ShaderTranslator {
+     // The constant blend factor for the respective modes.
+     float edram_blend_constant[4];
+ 
++    // TENCHUZ: values set by the game for pixel shader overrides
++    // (XeUser(n) in xe_interface.hlsli). Translated shaders never read them.
++    // Described to the shader as four float4[4] (kOverrideUser0..3).
++    float override_user[16][4];
++
+    private:
+     friend class DxbcShaderTranslator;
+ 
+@@ -440,6 +445,12 @@ class DxbcShaderTranslator : public ShaderTranslator {
+ 
+       kEdramBlendConstant,
+ 
++      // TENCHUZ
++      kOverrideUser0,
++      kOverrideUser1,
++      kOverrideUser2,
++      kOverrideUser3,
++
+       kCount,
+     };
+     static_assert(uint32_t(Index::kCount) <= 64,
+diff --git a/include/rex/graphics/pipeline/shader/shader.h b/include/rex/graphics/pipeline/shader/shader.h
+index 4cf3854..d2cfc5d 100644
+--- a/include/rex/graphics/pipeline/shader/shader.h
++++ b/include/rex/graphics/pipeline/shader/shader.h
+@@ -779,6 +779,12 @@ class Shader {
+     // Translated shader binary (or text).
+     const std::vector<uint8_t>& translated_binary() const { return translated_binary_; }
+ 
++    // Replaces the translated binary with an externally built one that keeps
++    // the same interface (used by shader overrides).
++    void ReplaceTranslatedBinary(std::vector<uint8_t> binary) {
++      translated_binary_ = std::move(binary);
++    }
++
+     // Gets the translated shader binary as a string.
+     // This is only valid if it is actually text.
+     std::string GetTranslatedBinaryString() const;
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 0d8f8af..e06c7fc 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -82,6 +82,7 @@ if(REXGLUE_USE_D3D12)
+         d3d12/texture_cache.cpp
+         d3d12/deferred_command_list.cpp
+         d3d12/pipeline_cache.cpp
++        d3d12/shader_override.cpp
+     )
+ endif()
+ 
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 19874a5..3bff224 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -23,6 +23,7 @@
+ #include <rex/graphics/d3d12/graphics_system.h>
+ #include <rex/graphics/d3d12/shader.h>
+ #include <rex/graphics/flags.h>
++#include "shader_override.h"  // TENCHUZ
+ #include <rex/graphics/registers.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/xenos.h>
+@@ -4000,6 +4001,13 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+     system_constants_.edram_blend_constant[3] = regs.Get<float>(XE_GPU_REG_RB_BLEND_ALPHA);
+   }
+ 
++  // TENCHUZ: live values for pixel shader overrides.
++  for (uint32_t i = 0; i < kShaderOverrideUserValueCount; ++i) {
++    float value = GetShaderOverrideUserValue(i);
++    dirty |= system_constants_.override_user[i >> 2][i & 3] != value;
++    system_constants_.override_user[i >> 2][i & 3] = value;
++  }
++
+   cbuffer_binding_system_.up_to_date &= !dirty;
+ }
+ 
+diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
+index 8e6b854..e7fb3c9 100644
+--- a/src/graphics/d3d12/pipeline_cache.cpp
++++ b/src/graphics/d3d12/pipeline_cache.cpp
+@@ -33,6 +33,7 @@
+ #include <rex/graphics/d3d12/command_processor.h>
+ #include <rex/graphics/d3d12/pipeline_cache.h>
+ #include <rex/graphics/d3d12/render_target_cache.h>
++#include "shader_override.h"  // TENCHUZ
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/format/dxbc.h>
+ #include <rex/graphics/pipeline_util.h>
+@@ -1211,6 +1212,13 @@ bool PipelineCache::TranslateAnalyzedShader(DxbcShaderTranslator& translator,
+     shader.SetSamplerBindingLayoutUserUID(sampler_binding_layout_uid);
+   }
+ 
++  // TENCHUZ: replace the translation with an HLSL override if one exists
++  // (shader_override.h). Bindings above come from the translator and stay
++  // valid, since the override is built against the same interface.
++  const ShaderOverrideContext override_context{
++      bindless_resources_used_, !render_target_cache_.gamma_render_target_as_unorm16()};
++  ApplyShaderOverride(translation, override_context);
++
+   // Disassemble the shader for dumping.
+   const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
+   if (REXCVAR_GET(d3d12_dxbc_disasm_dxilconv)) {
+@@ -1227,6 +1235,8 @@ bool PipelineCache::TranslateAnalyzedShader(DxbcShaderTranslator& translator,
+     translation.Dump(REXCVAR_GET(dump_shaders), (shader.type() == xenos::ShaderType::kPixel)
+                                                     ? (edram_rov_used ? "d3d12_rov" : "d3d12_rtv")
+                                                     : "d3d12");
++    // TENCHUZ: starting points for shader overrides.
++    DumpShaderOverrideStub(REXCVAR_GET(dump_shaders), translation, override_context);
+   }
+ 
+   return translation.is_valid();
+diff --git a/src/graphics/d3d12/shader_override.cpp b/src/graphics/d3d12/shader_override.cpp
+new file mode 100644
+index 0000000..29bf668
+--- /dev/null
++++ b/src/graphics/d3d12/shader_override.cpp
+@@ -0,0 +1,556 @@
++/**
++ * @file        shader_override.cpp
++ * @brief       Replacing translated guest pixel shaders with HLSL files.
++ *
++ * @remarks     Added for the Tenchu Z port (TENCHUZ). See shader_override.h.
++ */
++
++#include "shader_override.h"
++
++#include <d3dcompiler.h>
++
++#include <algorithm>
++#include <atomic>
++#include <cstddef>
++#include <cstring>
++#include <fstream>
++#include <memory>
++#include <mutex>
++#include <set>
++#include <sstream>
++#include <vector>
++
++#include <fmt/format.h>
++
++#include <rex/bit.h>
++#include <rex/cvar.h>
++#include <rex/graphics/flags.h>
++#include <rex/graphics/pipeline/shader/dxbc_translator.h>
++#include <rex/logging.h>
++
++REXCVAR_DEFINE_STRING(shader_override_dir, "", "GPU",
++                      "Directories (separated by ';', first match wins) holding "
++                      "<ucode hash>.ps.hlsl pixel shader overrides");
++REXCVAR_DECLARE(bool, use_fuzzy_alpha_epsilon);
++
++namespace rex::graphics::d3d12 {
++namespace {
++
++using Translator = DxbcShaderTranslator;
++using SystemConstants = Translator::SystemConstants;
++
++constexpr const char* kInterfaceName = "xe_interface.hlsli";
++
++// Float bit patterns, so a value is never read half-written.
++std::atomic<uint32_t> user_values[kShaderOverrideUserValueCount];
++
++const char* DimensionName(xenos::FetchOpDimension dimension) {
++  switch (dimension) {
++    case xenos::FetchOpDimension::k3DOrStacked:
++      return "3D";
++    case xenos::FetchOpDimension::kCube:
++      return "Cube";
++    default:
++      return "2D";
++  }
++}
++
++const char* TextureType(xenos::FetchOpDimension dimension) {
++  switch (dimension) {
++    case xenos::FetchOpDimension::k3DOrStacked:
++      return "Texture3D<float4>";
++    case xenos::FetchOpDimension::kCube:
++      return "TextureCube<float4>";
++    default:
++      // The translator binds 1D and 2D textures as 2D arrays.
++      return "Texture2DArray<float4>";
++  }
++}
++
++}  // namespace
++
++std::string BuildShaderOverrideInterface(const D3D12Shader::D3D12Translation& translation,
++                                         const ShaderOverrideContext& context) {
++  const auto& shader = static_cast<const D3D12Shader&>(translation.shader());
++  const Translator::Modification modification(translation.modification());
++  std::string s;
++  auto line = [&](std::string_view text) {
++    s += text;
++    s += '\n';
++  };
++
++  line("// Generated by the ReXGlue runtime for one translated pixel shader.");
++  line("// Regenerated on every compile; do not edit.");
++  s += fmt::format("// Shader {:016X}, modification {:016X}\n", shader.ucode_data_hash(),
++                   translation.modification());
++  s += fmt::format("#define XE_SHADER_HASH 0x{:016X}\n\n", shader.ucode_data_hash());
++
++  // ---------------------------------------------------------------- inputs
++  line("// Inputs. Interpolators keep the guest register names (r0-r15) and are");
++  line("// in the same order as the translated shader, which is what makes the");
++  line("// replacement link with the game's vertex shaders.");
++  line("struct XeInput {");
++  const uint32_t interpolators = modification.pixel.interpolator_mask;
++  uint32_t semantic = 0;
++  for (uint32_t i = 0; i < xenos::kMaxInterpolators; ++i) {
++    if (!(interpolators & (1u << i))) {
++      continue;
++    }
++    const bool centroid = (modification.pixel.interpolators_centroid >> i) & 1;
++    s += fmt::format("  {}float4 r{} : TEXCOORD{};\n", centroid ? "centroid " : "", i, semantic++);
++  }
++  if (modification.pixel.param_gen_point) {
++    line("  float2 xe_point_coord : XESPRITETEXCOORD;");
++  }
++  line("  float4 xe_position : SV_Position;");
++  line("  bool xe_front_face : SV_IsFrontFace;");
++  line("};\n");
++
++  // --------------------------------------------------------------- outputs
++  line("struct XeOutput {");
++  const uint32_t targets = shader.writes_color_targets();
++  for (uint32_t i = 0; i < 4; ++i) {
++    if (targets & (1u << i)) {
++      s += fmt::format("  float4 oC{} : SV_Target{};\n", i, i);
++    }
++  }
++  if (!targets) {
++    line("  // The original shader writes no color.");
++  }
++  line("};");
++  s += fmt::format("#define XE_ORIGINAL_WRITES_DEPTH {}\n\n", shader.writes_depth() ? 1 : 0);
++
++  // ------------------------------------------------------ system constants
++  line("// System constants (runtime state), read by byte offset.");
++  s += fmt::format(
++      "cbuffer XeSystemConstants : register(b{}) {{ uint4 xe_system[{}]; }}\n",
++      uint32_t(Translator::CbufferRegister::kSystemConstants), (sizeof(SystemConstants) + 15) / 16);
++  line("uint XeSysUint(uint offset) { return xe_system[offset >> 4][(offset >> 2) & 3]; }");
++  line("float XeSysFloat(uint offset) { return asfloat(XeSysUint(offset)); }");
++  s += fmt::format("#define XE_SYS_FLAGS {}\n", offsetof(SystemConstants, flags));
++  s += fmt::format("#define XE_SYS_TEXTURE_SIGNS {}\n",
++                   offsetof(SystemConstants, texture_swizzled_signs));
++  s += fmt::format("#define XE_SYS_ALPHA_TEST_REFERENCE {}\n",
++                   offsetof(SystemConstants, alpha_test_reference));
++  s += fmt::format("#define XE_SYS_COLOR_EXP_BIAS {}\n", offsetof(SystemConstants, color_exp_bias));
++  s += fmt::format("#define XE_SYS_OVERRIDE_USER {}\n", offsetof(SystemConstants, override_user));
++  line("// Live values set by the game (64 floats; 0 until set).");
++  line("#define XeUser(n) XeSysFloat(XE_SYS_OVERRIDE_USER + (n) * 4)");
++  s += fmt::format("#define XE_FLAG_ALPHA_PASS_SHIFT {}\n",
++                   uint32_t(Translator::kSysFlag_AlphaPassIfLess_Shift));
++  s += fmt::format("#define XE_FLAG_COLOR0_TO_GAMMA {}u\n",
++                   uint32_t(Translator::kSysFlag_ConvertColor0ToGamma));
++  s += fmt::format("#define XE_GAMMA_AS_UNORM8 {}\n", context.gamma_render_target_as_unorm8 ? 1 : 0);
++  s += fmt::format("#define XE_FUZZY_ALPHA {}\n\n", REXCVAR_GET(use_fuzzy_alpha_epsilon) ? 1 : 0);
++
++  // ------------------------------------------------------- float constants
++  const Shader::ConstantRegisterMap& constants = shader.constant_register_map();
++  const uint32_t float_count =
++      constants.float_dynamic_addressing ? 256 : std::max(constants.float_count, 1u);
++  line("// Float constants. C<n> is the game's c<n>; only the constants the original");
++  line("// shader reads are present (packed in ascending order).");
++  s += fmt::format(
++      "cbuffer XeFloatConstants : register(b{}) {{ float4 xe_float_constants[{}]; }}\n",
++      uint32_t(Translator::CbufferRegister::kFloatConstants), float_count);
++  if (constants.float_dynamic_addressing) {
++    line("#define XeC(n) xe_float_constants[n]");
++  } else {
++    for (uint32_t i = 0; i < 256; ++i) {
++      const uint32_t packed = constants.GetPackedFloatConstantIndex(i);
++      if (packed != UINT32_MAX) {
++        s += fmt::format("#define C{} xe_float_constants[{}]\n", i, packed);
++      }
++    }
++  }
++  s += '\n';
++
++  // ------------------------------------------- bool, loop, fetch constants
++  s += fmt::format("cbuffer XeBoolLoopConstants : register(b{}) {{ uint4 xe_bool_loop[10]; }}\n",
++                   uint32_t(Translator::CbufferRegister::kBoolLoopConstants));
++  line("bool XeBool(uint i) { return ((xe_bool_loop[i >> 7][(i >> 5) & 3] >> (i & 31)) & 1u) != 0; }");
++  line("uint XeLoop(uint i) { return xe_bool_loop[2 + (i >> 2)][i & 3]; }");
++  s += fmt::format("cbuffer XeFetchConstants : register(b{}) {{ uint4 xe_fetch[48]; }}\n",
++                   uint32_t(Translator::CbufferRegister::kFetchConstants));
++  line("uint XeFetchDword(uint fc, uint d) { uint i = fc * 6 + d; return xe_fetch[i >> 2][i & 3]; }\n");
++
++  // ------------------------------------------------- textures and samplers
++  const auto& textures = shader.GetTextureBindingsAfterTranslation();
++  const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
++  line("// Textures and samplers, as bound for the original shader. Aliases name");
++  line("// them by guest fetch constant: XeTexture2D_fc<n>, XeSampler_fc<n>.");
++  // First binding wins for each alias (signed / unsigned and 2D / 3D views of
++  // one fetch constant are separate bindings).
++  std::vector<std::string> alias_lines;
++  std::set<std::string> aliases;
++  if (context.bindless_resources_used && (!textures.empty() || !samplers.empty())) {
++    // Bindless: every texture and sampler lives in a shared descriptor heap;
++    // the per-draw descriptor index cbuffer says which entry each binding
++    // uses, in the same slots as the translated shader.
++    s += fmt::format(
++        "cbuffer XeDescriptorIndices : register(b{}) {{ uint4 xe_descriptor_indices[{}]; }}\n",
++        uint32_t(Translator::CbufferRegister::kDescriptorIndices),
++        (textures.size() + samplers.size() + 3) / 4);
++    line("uint XeDescriptorIndex(uint i) { return xe_descriptor_indices[i >> 2][i & 3]; }");
++    s += fmt::format("Texture2DArray<float4> xe_textures_2d[] : register(t0, space{});\n",
++                     uint32_t(Translator::SRVSpace::kBindlessTextures2DArray));
++    s += fmt::format("Texture3D<float4> xe_textures_3d[] : register(t0, space{});\n",
++                     uint32_t(Translator::SRVSpace::kBindlessTextures3D));
++    s += fmt::format("TextureCube<float4> xe_textures_cube[] : register(t0, space{});\n",
++                     uint32_t(Translator::SRVSpace::kBindlessTexturesCube));
++    line("SamplerState xe_samplers[] : register(s0, space0);");
++  }
++  for (uint32_t i = 0; i < uint32_t(textures.size()); ++i) {
++    const auto& t = textures[i];
++    if (context.bindless_resources_used) {
++      const char* heap = t.dimension == xenos::FetchOpDimension::k3DOrStacked ? "xe_textures_3d"
++                         : t.dimension == xenos::FetchOpDimension::kCube      ? "xe_textures_cube"
++                                                                              : "xe_textures_2d";
++      s += fmt::format("#define XeTexture{} {}[XeDescriptorIndex({})] // fetch constant {}, {}{}\n",
++                       i, heap, t.bindless_descriptor_index, t.fetch_constant,
++                       DimensionName(t.dimension), t.is_signed ? ", signed" : "");
++    } else {
++      s += fmt::format("{} XeTexture{} : register(t{}); // fetch constant {}, {}{}\n",
++                       TextureType(t.dimension), i,
++                       uint32_t(Translator::SRVMainRegister::kBindfulTexturesStart) + i,
++                       t.fetch_constant, DimensionName(t.dimension),
++                       t.is_signed ? ", signed" : "");
++    }
++    const std::string alias = fmt::format("XeTexture{}{}_fc{}", DimensionName(t.dimension),
++                                          t.is_signed ? "Signed" : "", t.fetch_constant);
++    if (aliases.insert(alias).second) {
++      alias_lines.push_back(fmt::format("#define {} XeTexture{}", alias, i));
++    }
++  }
++  for (uint32_t i = 0; i < uint32_t(samplers.size()); ++i) {
++    if (context.bindless_resources_used) {
++      s += fmt::format("#define XeSampler{} xe_samplers[XeDescriptorIndex({})] // fetch constant {}\n",
++                       i, samplers[i].bindless_descriptor_index, samplers[i].fetch_constant);
++    } else {
++      s += fmt::format("SamplerState XeSampler{} : register(s{}); // fetch constant {}\n", i, i,
++                       samplers[i].fetch_constant);
++    }
++    const std::string alias = fmt::format("XeSampler_fc{}", samplers[i].fetch_constant);
++    if (aliases.insert(alias).second) {
++      alias_lines.push_back(fmt::format("#define {} XeSampler{}", alias, i));
++    }
++  }
++  for (const auto& a : alias_lines) {
++    line(a);
++  }
++  if (textures.empty()) {
++    line("// The original shader samples no textures.");
++  }
++  s += '\n';
++
++  // ---------------------------------------------------------------- helpers
++  s += R"HLSL(// Xbox 360 piecewise-linear gamma, exactly as the translator converts it.
++float XePWLGammaToLinear(float g) {
++  g = saturate(g);
++  float scale, offset;
++  if (g >= 96.0 / 255.0) {
++    bool hi = g >= 192.0 / 255.0;
++    scale = hi ? 8.0 / 1024.0 : 4.0 / 1024.0;
++    offset = hi ? -1024.0 : -256.0;
++  } else {
++    bool hi = g >= 64.0 / 255.0;
++    scale = hi ? 2.0 / 1024.0 : 1.0 / 1024.0;
++    offset = hi ? -64.0 : 0.0;
++  }
++  float l = g * (255.0 * 1024.0) * scale + offset;
++  l += trunc(l * scale);
++  return l * (1.0 / 1023.0);
++}
++float XeLinearToPWLGamma(float l) {
++  l = saturate(l);
++  float scale, offset;
++  if (l >= 128.0 / 1023.0) {
++    bool hi = l >= 512.0 / 1023.0;
++    scale = hi ? 1023.0 / 8.0 : 1023.0 / 4.0;
++    offset = hi ? 128.0 / 255.0 : 64.0 / 255.0;
++  } else {
++    bool hi = l >= 64.0 / 1023.0;
++    scale = hi ? 1023.0 / 2.0 : 1023.0;
++    offset = hi ? 32.0 / 255.0 : 0.0;
++  }
++  return trunc(l * scale) * (1.0 / 255.0) + offset;
++}
++
++// Per-component texture sign handling (biased and gamma textures), as the
++// translator applies it after every texture fetch.
++float4 XeApplyTextureSigns(uint fc, float4 v) {
++  uint signs = (XeSysUint(XE_SYS_TEXTURE_SIGNS + (fc >> 2) * 4) >> ((fc & 3) * 8)) & 0xFFu;
++  [unroll] for (uint c = 0; c < 4; ++c) {
++    uint sign = (signs >> (c * 2)) & 3u;
++    if (sign == 2u) v[c] = v[c] * 2.0 - 1.0;
++    else if (sign == 3u) v[c] = XePWLGammaToLinear(v[c]);
++  }
++  return v;
++}
++
++// Samples a 2D texture by guest fetch constant, like the original tfetch2D.
++#define XeSample2D(fc, uv) \
++  XeApplyTextureSigns(fc, XeTexture2D_fc##fc.Sample(XeSampler_fc##fc, float3((uv), 0.0)))
++
++// Alpha test, as configured by the game for the current draw.
++void XeAlphaTest(float a) {
++  uint mask = (XeSysUint(XE_SYS_FLAGS) >> XE_FLAG_ALPHA_PASS_SHIFT) & 7u;
++  if (mask == 7u) return;
++  float ref = XeSysFloat(XE_SYS_ALPHA_TEST_REFERENCE);
++  bool passed;
++#if XE_FUZZY_ALPHA
++  const float eps = 1e-3;
++  if (mask == 5u) {
++    passed = !(abs(a - ref) < eps);
++  } else {
++    passed = ((mask & 1u) && (a - eps < ref)) || ((mask & 2u) && (abs(a - ref) < eps)) ||
++           ((mask & 4u) && (ref < a + eps));
++  }
++#else
++  if (mask == 5u) {
++    passed = a != ref;
++  } else {
++    passed = ((mask & 1u) && a < ref) || ((mask & 2u) && a == ref) || ((mask & 4u) && ref < a);
++  }
++#endif
++  if (!passed) discard;
++}
++
++// Finishes a color output the way the translator does: alpha test (target 0),
++// render target exponent bias, and gamma conversion for gamma targets. Pass
++// every color you write through this.
++float4 XeOutputColor(uint target, float4 c) {
++  if (target == 0) XeAlphaTest(c.a);
++  c *= XeSysFloat(XE_SYS_COLOR_EXP_BIAS + target * 4);
++#if XE_GAMMA_AS_UNORM8
++  if (XeSysUint(XE_SYS_FLAGS) & (XE_FLAG_COLOR0_TO_GAMMA << target)) {
++    c.rgb = saturate(c.rgb);
++    c.r = XeLinearToPWLGamma(c.r);
++    c.g = XeLinearToPWLGamma(c.g);
++    c.b = XeLinearToPWLGamma(c.b);
++  }
++#endif
++  return c;
++}
++)HLSL";
++  return s;
++}
++
++void SetShaderOverrideUserValues(const float* values, uint32_t count) {
++  count = std::min(count, kShaderOverrideUserValueCount);
++  for (uint32_t i = 0; i < count; ++i) {
++    uint32_t bits;
++    std::memcpy(&bits, &values[i], sizeof(bits));
++    user_values[i].store(bits, std::memory_order_relaxed);
++  }
++}
++
++float GetShaderOverrideUserValue(uint32_t index) {
++  uint32_t bits = user_values[index].load(std::memory_order_relaxed);
++  float value;
++  std::memcpy(&value, &bits, sizeof(value));
++  return value;
++}
++
++namespace {
++
++// d3dcompiler_47.dll ships with Windows 10 and 11.
++pD3DCompile LoadD3DCompile() {
++  static pD3DCompile compile = nullptr;
++  static std::once_flag once;
++  std::call_once(once, [] {
++    HMODULE module = LoadLibraryW(L"d3dcompiler_47.dll");
++    if (module) {
++      compile = reinterpret_cast<pD3DCompile>(GetProcAddress(module, "D3DCompile"));
++    }
++    if (!compile) {
++      REXLOG_ERROR("shader overrides: d3dcompiler_47.dll / D3DCompile not available");
++    }
++  });
++  return compile;
++}
++
++// Serves the generated interface for "xe_interface.hlsli" and other includes
++// from the override's directory.
++class OverrideInclude : public ID3DInclude {
++ public:
++  OverrideInclude(std::string interface_text, std::filesystem::path dir)
++      : interface_text_(std::move(interface_text)), dir_(std::move(dir)) {}
++
++  HRESULT __stdcall Open(D3D_INCLUDE_TYPE, LPCSTR name, LPCVOID, LPCVOID* data,
++                         UINT* bytes) override {
++    std::string content;
++    if (std::string_view(name) == kInterfaceName) {
++      content = interface_text_;
++    } else {
++      std::ifstream file(dir_ / name, std::ios::binary);
++      if (!file) {
++        return E_FAIL;
++      }
++      std::ostringstream buffer;
++      buffer << file.rdbuf();
++      content = buffer.str();
++    }
++    auto* copy = new char[content.size() + 1];
++    std::memcpy(copy, content.data(), content.size() + 1);
++    *data = copy;
++    *bytes = UINT(content.size());
++    return S_OK;
++  }
++
++  HRESULT __stdcall Close(LPCVOID data) override {
++    delete[] static_cast<const char*>(data);
++    return S_OK;
++  }
++
++ private:
++  std::string interface_text_;
++  std::filesystem::path dir_;
++};
++
++std::vector<std::filesystem::path> OverrideDirectories() {
++  std::vector<std::filesystem::path> dirs;
++  std::string list = REXCVAR_GET(shader_override_dir);
++  size_t start = 0;
++  while (start <= list.size()) {
++    size_t end = list.find(';', start);
++    if (end == std::string::npos) {
++      end = list.size();
++    }
++    if (end > start) {
++      dirs.emplace_back(list.substr(start, end - start));
++    }
++    start = end + 1;
++  }
++  return dirs;
++}
++
++}  // namespace
++
++bool ApplyShaderOverride(D3D12Shader::D3D12Translation& translation,
++                         const ShaderOverrideContext& context) {
++  const Shader& shader = translation.shader();
++  if (shader.type() != xenos::ShaderType::kPixel) {
++    return false;
++  }
++  const std::vector<std::filesystem::path> dirs = OverrideDirectories();
++  if (dirs.empty()) {
++    return false;
++  }
++  const std::string names[] = {fmt::format("{:016X}.ps.hlsl", shader.ucode_data_hash()),
++                               fmt::format("shader_{:016X}.ps.hlsl", shader.ucode_data_hash())};
++  std::filesystem::path path;
++  std::error_code ec;
++  for (const auto& dir : dirs) {
++    for (const auto& name : names) {
++      if (std::filesystem::is_regular_file(dir / name, ec)) {
++        path = dir / name;
++        break;
++      }
++    }
++    if (!path.empty()) {
++      break;
++    }
++  }
++  if (path.empty()) {
++    return false;
++  }
++  pD3DCompile compile = LoadD3DCompile();
++  if (!compile) {
++    return false;
++  }
++
++  std::ifstream file(path, std::ios::binary);
++  std::ostringstream buffer;
++  buffer << file.rdbuf();
++  const std::string source = buffer.str();
++
++  OverrideInclude include(BuildShaderOverrideInterface(translation, context),
++                          path.parent_path());
++  ID3DBlob* blob = nullptr;
++  ID3DBlob* errors = nullptr;
++  const std::string source_name = path.string();
++  // Unbounded tables: the bindless descriptor heaps, as the translator uses.
++  HRESULT hr = compile(source.data(), source.size(), source_name.c_str(), nullptr, &include,
++                       "main", "ps_5_1",
++                       D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES,
++                       0, &blob, &errors);
++  if (errors) {
++    std::string messages(static_cast<const char*>(errors->GetBufferPointer()),
++                         errors->GetBufferSize());
++    // The compiler's text ends with a NUL and a newline.
++    while (!messages.empty() && (messages.back() == '\0' || messages.back() == '\n')) {
++      messages.pop_back();
++    }
++    if (FAILED(hr)) {
++      REXLOG_ERROR("shader override {} failed to compile, using the original:\n{}",
++                   path.string(), messages);
++    } else {
++      REXLOG_WARN("shader override {} compiled with warnings:\n{}", path.string(), messages);
++    }
++    errors->Release();
++  }
++  if (FAILED(hr) || !blob) {
++    return false;
++  }
++  const auto* bytes = static_cast<const uint8_t*>(blob->GetBufferPointer());
++  translation.ReplaceTranslatedBinary(std::vector<uint8_t>(bytes, bytes + blob->GetBufferSize()));
++  blob->Release();
++  REXLOG_INFO("shader override applied: {:016X} (modification {:016X}) from {}",
++              shader.ucode_data_hash(), translation.modification(), path.string());
++  return true;
++}
++
++void DumpShaderOverrideStub(const std::filesystem::path& dump_dir,
++                            const D3D12Shader::D3D12Translation& translation,
++                            const ShaderOverrideContext& context) {
++  const Shader& shader = translation.shader();
++  if (shader.type() != xenos::ShaderType::kPixel || dump_dir.empty()) {
++    return;
++  }
++  std::error_code ec;
++  std::filesystem::create_directories(dump_dir, ec);
++  const uint64_t hash = shader.ucode_data_hash();
++  {
++    std::ofstream out(dump_dir / fmt::format("shader_{:016X}.ps.interface.hlsli", hash));
++    out << BuildShaderOverrideInterface(translation, context);
++  }
++  const auto stub_path = dump_dir / fmt::format("shader_{:016X}.ps.stub.hlsl", hash);
++  if (std::filesystem::exists(stub_path, ec)) {
++    return;  // never overwrite a stub someone may be editing
++  }
++  std::ofstream out(stub_path);
++  out << fmt::format(
++      "// Override for pixel shader {:016X}.\n"
++      "// Copy this file to shader_overrides\\{:016X}.ps.hlsl next to the game\n"
++      "// and edit main(). The game's original code for this shader is in\n"
++      "// shader_{:016X}.ucode.frag (Xbox 360 microcode) next to this file.\n"
++      "// Everything this shader can read is declared in xe_interface.hlsli\n"
++      "// (a copy is in shader_{:016X}.ps.interface.hlsli).\n\n"
++      "#include \"xe_interface.hlsli\"\n\n"
++      "XeOutput main(XeInput input) {{\n"
++      "  XeOutput output;\n",
++      hash, hash, hash, hash);
++  const auto& textures = static_cast<const D3D12Shader&>(shader).GetTextureBindingsAfterTranslation();
++  const uint32_t targets = shader.writes_color_targets();
++  for (uint32_t i = 0; i < 4; ++i) {
++    if (!(targets & (1u << i))) {
++      continue;
++    }
++    std::string value = "float4(1.0, 0.0, 1.0, 1.0)";
++    std::string comment = "magenta: replace with your own color";
++    const uint32_t interpolators = DxbcShaderTranslator::Modification(translation.modification())
++                                       .pixel.interpolator_mask;
++    uint32_t first_interpolator;
++    if (i == 0 && !textures.empty() &&
++        textures[0].dimension == xenos::FetchOpDimension::k2D &&
++        rex::bit_scan_forward(interpolators, &first_interpolator)) {
++      value = fmt::format("XeSample2D({}, input.r{}.xy)", textures[0].fetch_constant,
++                          first_interpolator);
++      comment = "example: the first texture at the first interpolator";
++    }
++    out << fmt::format("  output.oC{} = XeOutputColor({}, {});  // {}\n", i, i, value, comment);
++  }
++  out << "  return output;\n}\n";
++}
++
++}  // namespace rex::graphics::d3d12
+diff --git a/src/graphics/d3d12/shader_override.h b/src/graphics/d3d12/shader_override.h
+new file mode 100644
+index 0000000..61a1906
+--- /dev/null
++++ b/src/graphics/d3d12/shader_override.h
+@@ -0,0 +1,63 @@
++/**
++ * @file        shader_override.h
++ * @brief       Replacing translated guest pixel shaders with HLSL files.
++ *
++ * @remarks     Added for the Tenchu Z port (TENCHUZ). A guest shader is
++ *              identified by its ucode hash. If one of the override
++ *              directories contains <hash>.ps.hlsl, it is compiled with the
++ *              system D3DCompiler (d3dcompiler_47.dll) as ps_5_1 and replaces
++ *              the translated DXBC.
++ *
++ *              The override includes "xe_interface.hlsli", which is generated
++ *              per shader from the translator's own metadata so the replacement
++ *              matches the original exactly: the input signature (interpolators
++ *              in TEXCOORD order, SV_Position, SV_IsFrontFace), the packed
++ *              float constants (C<n> for every guest c<n> the original reads),
++ *              bool / loop / fetch constants, texture and sampler registers by
++ *              fetch constant, and XeOutputColor(), which applies alpha test,
++ *              the render target exponent bias and gamma conversion the way
++ *              the translator does.
++ *
++ *              Both resource binding modes are supported: with bindless
++ *              binding (the default) textures and samplers are taken from
++ *              the descriptor heaps by the per-draw descriptor indices, with
++ *              bindful binding (d3d12_bindless = false) by register.
++ */
++
++#pragma once
++
++#include <filesystem>
++#include <string>
++
++#include <rex/graphics/d3d12/shader.h>
++
++namespace rex::graphics::d3d12 {
++
++struct ShaderOverrideContext {
++  bool bindless_resources_used;
++  bool gamma_render_target_as_unorm8;
++};
++
++// Generates the HLSL interface header for a translated pixel shader.
++std::string BuildShaderOverrideInterface(const D3D12Shader::D3D12Translation& translation,
++                                         const ShaderOverrideContext& context);
++
++// Looks for an override of the translated shader in the directories listed
++// in the shader_override_dir cvar and, if one compiles, replaces the
++// translation's binary with it. Returns true if replaced.
++bool ApplyShaderOverride(D3D12Shader::D3D12Translation& translation,
++                         const ShaderOverrideContext& context);
++
++// Values the game passes to every override (XeUser(0) .. XeUser(63) in HLSL),
++// for live settings. Set from any thread; read when system constants update.
++constexpr uint32_t kShaderOverrideUserValueCount = 64;
++void SetShaderOverrideUserValues(const float* values, uint32_t count);
++float GetShaderOverrideUserValue(uint32_t index);
++
++// Writes shader_<hash>.ps.stub.hlsl (a starting point for an override) and
++// shader_<hash>.ps.interface.hlsli next to the other dumped shader files.
++void DumpShaderOverrideStub(const std::filesystem::path& dump_dir,
++                            const D3D12Shader::D3D12Translation& translation,
++                            const ShaderOverrideContext& context);
++
++}  // namespace rex::graphics::d3d12
+diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
+index 2c31a0e..792962b 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator.cpp
+@@ -1982,6 +1982,12 @@ const DxbcShaderTranslator::SystemConstantRdef DxbcShaderTranslator::system_cons
+     {"xe_edram_rt_blend_factors_ops", ShaderRdefTypeIndex::kUint4, sizeof(uint32_t) * 4},
+ 
+     {"xe_edram_blend_constant", ShaderRdefTypeIndex::kFloat4, sizeof(float) * 4},
++
++    // TENCHUZ: SystemConstants::override_user, 16 float4 in four parts.
++    {"xe_override_user0", ShaderRdefTypeIndex::kFloat4Array4, sizeof(float) * 4 * 4},
++    {"xe_override_user1", ShaderRdefTypeIndex::kFloat4Array4, sizeof(float) * 4 * 4},
++    {"xe_override_user2", ShaderRdefTypeIndex::kFloat4Array4, sizeof(float) * 4 * 4},
++    {"xe_override_user3", ShaderRdefTypeIndex::kFloat4Array4, sizeof(float) * 4 * 4},
+ };
+ 
+ void DxbcShaderTranslator::WriteResourceDefinition() {
+diff --git a/src/graphics/plugin_main.cpp b/src/graphics/plugin_main.cpp
+index ec756d3..1b7ca2a 100644
+--- a/src/graphics/plugin_main.cpp
++++ b/src/graphics/plugin_main.cpp
+@@ -16,6 +16,7 @@
+ 
+ #if REX_HAS_D3D12
+ #include <rex/graphics/d3d12/graphics_system.h>
++#include "d3d12/shader_override.h"  // TENCHUZ
+ #endif
+ #if REX_HAS_VULKAN
+ #include <rex/graphics/vulkan/graphics_system.h>
+@@ -51,3 +52,12 @@ extern "C" REX_GPU_PLUGIN_EXPORT rex::system::IGraphicsSystem* rex_gpu_create(
+   REXLOG_ERROR("rexgpu-xenos: requested backend '{}' is not compiled into this plugin", backend);
+   return nullptr;
+ }
++
++// TENCHUZ: live values for pixel shader overrides (XeUser(n) in HLSL). The game
++// finds this with GetProcAddress, so older plugins without it still load.
++extern "C" REX_GPU_PLUGIN_EXPORT void rex_shader_override_set_values(const float* values,
++                                                                     uint32_t count) {
++#if REX_HAS_D3D12
++  rex::graphics::d3d12::SetShaderOverrideUserValues(values, count);
++#endif
++}

@@ -1,0 +1,33 @@
+# Tenchu Z (title 465307D7) runtime configuration.
+#
+# Read at startup from the folder that contains tenchuz.exe. The launcher
+# ("Tenchu Z Launcher.cmd") and the in-game F6 menu both edit this file in
+# place. See docs\launcher_options.md for every option.
+#
+# use_fuzzy_alpha_epsilon
+#   Fixes characters rendering as garbled pixels on NVIDIA GPUs (relaxes the
+#   alpha-test comparison). Required; do not remove.
+use_fuzzy_alpha_epsilon = true
+
+# --- Tenchu Z Launcher managed settings ---
+resolution_scale = 2
+video_mode_width = 1280
+video_mode_height = 720
+video_mode_refresh_rate = 60.0
+window_width = 1920
+window_height = 1080
+fullscreen = false
+vsync = true
+d3d12_allow_variable_refresh_rate_and_tearing = false
+skip_intro_movies = true
+
+# Keyboard and mouse: on, so the keyboard works however the game is started
+# (controllers work at the same time). Keys can be changed with the
+# keybind_* settings, e.g. keybind_a = "Space"; the full list is in README.txt.
+mnk_mode = true
+
+# Per-category log levels. The "gpu" category logs two harmless errors for
+# every empty resolve the game issues (~180 a second), so it is turned down
+# to critical. Set it to "error" when diagnosing a rendering problem.
+[log.levels]
+gpu = "critical"

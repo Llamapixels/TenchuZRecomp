@@ -1,0 +1,272 @@
+TENCHU Z - NATIVE PC PORT: FEATURES
+====================================
+
+Status:  [ok]     confirmed working in game
+         [test]   built and boot-tested, needs confirming in a mission
+         [exp]    experimental
+         [bug]    known problem, being investigated
+         [todo]   not done yet, parked for later
+         [gone]   removed
+
+Keep this file up to date when features are added or changed.
+
+
+HOTKEYS (in game)
+-----------------
+  F6    Tenchu Z menu (all options below)
+  F8    God mode on/off
+  F5    Refill health
+  F9    Pause / resume mouse look
+  F10   Photo mode (free camera)
+  F1    Save position (practice)
+  F2    Load position (practice)
+
+
+GAMEPLAY / CHEATS  (F6 > Cheats)
+--------------------------------
+  [ok]   God mode - the local player takes no damage. Enemies, co-op
+         partners and scripted deaths (pits, mission-fail traps) unaffected.
+  [ok]   Refill health, live health readout.
+  [test] Free shop purchases.
+  [test] Show / set money (ryo), capped at 99,999,999 like the game.
+  [test] Damage you take: 0x - 3x (hard mode above 1x).
+  [test] Damage enemies take: 0x - 5x.
+  [test] One-hit kills.
+  [test] Enemy readout: enemies alive, nearest enemy's HP and distance,
+         HP of the last enemy you hit.
+
+
+CAMERA  (F6 > Camera)
+---------------------
+  [ok]   Invert horizontal / vertical.
+  [ok]   Horizontal / vertical camera speed.
+  [ok]   Field of view (game default 48 degrees).
+  [ok]   Camera distance (0.5x - 2.5x).
+  [ok]   Photo mode / free camera (F10): left stick move, right stick
+         look, RT/LT up/down, RB/LB fast/slow. The game keeps running.
+         Fixed: left/down stick directions were dropped when combining
+         controller slots. Stick diagnostics in the Camera tab.
+  [ok]   Mouse look for keyboard & mouse players, mouse speed. The mouse
+         is released while the F6 menu is open; F9 pauses it.
+
+
+CONTROLLER  (F6 > Controller)
+-----------------------------
+  [test] Button remapping - any game button can be fed by any button or
+         trigger. Saved as button_map in tenchuz.toml.
+  [test] Left / right stick deadzones (game default 24% / 27%).
+  [test] Rumble strength 0% (off) - 200%.
+
+
+SPEEDRUN  (F6 > Speedrun)
+-------------------------
+  [test] Mission timer: runs from when your character appears after a
+         mission loads until it leaves (loads excluded). The hub is not
+         timed.
+  [test] Run timer: in-game time (sum of missions) and real time.
+  [test] Splits table, personal best per mission (speedrun_bests.txt),
+         every attempt logged (speedrun_log.txt). Deaths never count as
+         bests.
+  [ok]   Practice: save / load position (F1 / F2), within one area. Uses
+         the game's own placement routine (sub_82342500) and also moves
+         the other copies of the position the game keeps (physics, etc.).
+
+
+ON-SCREEN PANEL  (F6 > HUD)
+---------------------------
+  [ok]   Frame rate: game frames and display frames.
+  [test] Health, enemies (alive / nearest / last hit), speedrun timer,
+         position.
+  [ok]   Any corner of the screen.
+
+
+VIDEO  (F6 > Shader, launcher)
+------------------------------
+  [ok]   Render scale 1x - 7x (the game always draws 1280x720; scale is
+         the real internal resolution, e.g. 3x = 3840x2160).
+  [gone] F6 > Video tab removed (2026-10-21): its live overrides of the
+         game's own post-processing (exposure, bloom, HDR, blur, tone
+         mapping, depth of field) are replaced by the shader presets. The
+         frame size readout went with it; render scale is in the launcher.
+         Old fx_* keys were removed from tenchuz.toml.
+  [ok]   ReShade works (Direct3D 12; colour effects only, see docs).
+  [ok]   Custom pixel shaders: put <HASH>.ps.hlsl in shader_overrides\ or
+         mods\<Mod>\shaders\ and it replaces that game shader (compiled at
+         startup; errors fall back to the original). shader_overrides\
+         wins over mods. Off switch: shader_overrides_enabled in
+         tenchuz.toml. Guide: docs\shader_modding.md.
+  [ok]   Shader presets: each subfolder of shader_overrides\ (or a mod's
+         shaders\) is a preset. F6 > Shader > Preset picks one, or Original;
+         switching needs a restart (Restart now button). Saved as
+         shader_preset in tenchuz.toml.
+  [ok]   "Modern Look" preset (extras\shader_overrides\Modern Look):
+         replaces the final screen pass (822F99ECDB1B0ACD) and adds
+         sharpening, clarity, bloom, a highlight roll-off, colour grading,
+         vignette and dithering on top of the game's own blur/DOF/bloom.
+  [ok]   "Manga" preset (extras\shader_overrides\Manga): ink outlines,
+         flat tone bands, halftone screentone and paper colour; the Colour
+         slider turns it into a colour comic.
+  [ok]   Manga ink lines drawn on the dark side of edges only (half as
+         thick) and sized in whole screen pixels (no pixelation when thin).
+  [ok]   F6 > Shader: live sliders for the active preset (from its
+         preset.ini), an effects on/off switch and a split-screen compare.
+         Values saved per preset in shader_settings.ini. Shader files read
+         them as XeUser(0..47).
+  [ok]   The game passes the camera (eye, direction, field of view) and a
+         clock to every shader (XeUser(48..61)), so shaders can rebuild
+         world positions. Verified with a world grid on the hub puddle.
+  [ok]   Modern Look puddle water, puddles only (79481E88F9E67594): world-anchored
+         animated ripples, ripple distortion, fresnel reflection, glints
+         and depth tint, with 7 sliders.
+  [ok]   Modern Look depth effects: ambient occlusion, atmospheric haze
+         with tint, depth of field focused on the player, and light shafts
+         from bright distant areas (they always come from above the screen;
+         the moon's real position is not known). 9 sliders. The game's depth
+         texture holds about k / distance; k is measured every frame at the
+         player (the game passes the player's screen position and distance,
+         XeUser(40..43)). Fixed 2026-10-21: haze only reached ~10 ft and
+         DOF/shafts did nothing, because depth was read as plain distance.
+  [todo] River water: its shader is not identified yet (none of the 42
+         known pixel shaders could be singled out by colour tests; the
+         river is probably drawn additively). Next step if wanted: an
+         in-game shader picker. Skipped for now.
+  [ok]   Fixed: with shader overrides active, some textures came out as a
+         flat colour (mission 1: purple wooden walkway, magenta HUD orb).
+         Cause: overrides switched the renderer to its bindful resource
+         mode. They now work in the default bindless mode, so the renderer
+         is left alone.
+
+
+ONLINE  (F6 > Online, game's System Link mode)
+----------------------------------------------
+  [ok]   System Link multiplayer over IP: host and join with the game's own
+         System Link menu. Verified with two copies on one PC (both players
+         in the village). Not yet tested between two PCs or over the
+         internet. Guide: docs\multiplayer.md.
+  [test] Join by IP (net_join_ip, set by Join in F6 > Online): search asks
+         that host directly, so play works over virtual LANs (ZeroTier,
+         Radmin, Tailscale) or port forwarding. The join box takes codes or
+         plain addresses.
+  [test] F6 > Online > Advanced: This PC's address (net_bind_ip) for
+         virtual LANs, this PC's local addresses with Copy buttons, and the
+         router (UPnP) on/off switch.
+  [ok]   Join codes, the simple way (2026-10-21): F6 > Online > Host a game
+         > "Get my join code" opens the game's ports on the router (UPnP,
+         remembered as net_upnp; again at every start, closed at exit) and
+         shows the code (e.g. K3F9-2QX7) with a Copy button. Friends paste it
+         under Join a friend (Paste button or Ctrl+V) and press Join, then
+         Search in System Link. Verified with two copies on one PC (code
+         copied and pasted, search found the host, join worked). Not yet
+         tested between two networks.
+  [ok]   Router port opening verified with a real router (opened, internet
+         address read, closed again on exit).
+  [test] If the router refuses, the internet address comes from a public
+         STUN server (Google, else Cloudflare) and the code is still shown,
+         with a note to forward the ports by hand or use a virtual LAN.
+  [test] With a virtual LAN address set (Advanced > This PC's address), the
+         join code stands for that address. The two-copy test script uses this
+         (each copy shows a code for 127.0.0.x).
+  [test] Each PC tells the other players its internet address
+         (net_public_ip, in its System Link address), so players on other
+         networks reach it across the internet.
+  [ok]   Fixed: the host answered System Link searches only with a
+         broadcast, so players joining by code never saw the game. It now
+         also answers searchers from other networks directly.
+  [ok]   Fixed: a host with a join address left from an earlier game sent
+         its search answers there (or to itself) instead of to the player
+         searching. Hosts now always answer the searcher.
+  [test] Recent table in F6 > Online: the last 5 codes joined, with date,
+         and Join / Copy / Remove buttons (net_recent_hosts).
+  [test] Fixed: Ctrl+V / Ctrl+C / Ctrl+A did nothing in menu text fields
+         (the runtime never passed Ctrl to the menus correctly).
+  [ok]   Player name (F6 > Online > Your name, user_name): what other
+         players see instead of "User". Applies after a restart (Restart
+         now button). Verified with two copies (Rikimaru and Ayame shown in
+         the joined game). Fixed 2026-10-21: any other name crashed the game,
+         because the runtime kept profile files in a folder named after the
+         player, and a new name meant an empty folder. It now always uses
+         the "User" profile folder, so saves and settings stay put.
+  [ok]   Fixed 2026-10-22: the partner card at the top left (colored P1-P4
+         badge frame, health bar, name) showed as striped boxes. Cause: a
+         recompiler bug in the vector pack instructions vpkuwus / vpkuhus
+         when the result register is also an input (vpkuwus v0,v0,v0): the
+         game builds the card's sprite sizes that way at startup, and they
+         came out as 65535. Fixed in the recompiler (SDK patch 4); every
+         place the game uses these instructions was regenerated. Verified
+         in a co-op mission: the card matches the Xbox.
+         (The flashing light specks in the air are dust; the Xbox has them
+         too.)
+  [ok]   tools\systemlink_test.ps1 runs two copies on one PC for testing
+         (join with the codes; -PresetJoin skips them). Runs both at 1x
+         render scale by default: at 3x the two copies fight over the GPU,
+         the one you are not playing in drops to a few frames a second and
+         enemies stutter on the other screen (verified: smooth at 1x).
+  [test] The game keeps full speed when its window is in the background
+         (1 ms timer, Windows background throttling off), so a host who
+         alt-tabs does not slow down the game for the other players.
+
+GAME  (F6 > Game)
+-----------------
+  [ok]   Skip intro movies (logos and opening); story cutscenes still play.
+  [test] Mute when the window is not focused (on by default).
+  [test] Exit game (button at the bottom of the F6 menu, with confirm).
+
+
+MODS
+----
+  [ok]   mods\ folder next to tenchuz.exe: each mod mirrors the game folder
+         (mods\MyMod\DATA\...). Replaces and adds files without touching the
+         game files. Folders starting with _ are disabled. Later in the
+         alphabet wins.
+  [test] Launcher mod manager: enable/disable checkboxes and load order
+         (Up/Down). Applied by renaming folders when you save or launch.
+  [ok]   Loaded mods listed in F6 > Mods.
+  [ok]   Mods can ship shaders in mods\<Mod>\shaders\ (see VIDEO).
+
+
+LAUNCHER  (tools\launcher\Tenchu Z Launcher.cmd)
+------------------------------------------------
+  [ok]   Render scale, window size / fullscreen, frame rate + vsync.
+  [ok]   God mode, free shopping, skip intros, mouse look, mods on/off.
+  [ok]   Dump shaders for shader modding (writes shader_dump\ with an
+         override stub and interface file for every pixel shader).
+  [test] Mod manager (see above).
+  [ok]   Works next to tenchuz.exe (packaged) or in the build tree.
+  [ok]   Asks before closing a running game; shows errors in a dialog.
+
+
+RELEASE  (tools\package_release.ps1)
+------------------------------------
+  [ok]   Release zip: release\TenchuZ-PC-<date>.zip (about 15 MB). Holds the
+         port, the Visual C++ runtime, setup and launcher, a clean
+         tenchuz.toml, the shader presets, docs and licenses. No game files;
+         the packaging script refuses to include any.
+  [ok]   "Setup Tenchu Z.cmd" (toolselease\setup.ps1): extracts the
+         player's own Tenchu Z .iso into extracted\ (no extra programs) and
+         creates the profile settings the game needs. Verified: unzipped
+         release + ISO -> identical game files, game starts with the Modern
+         Look preset.
+  [ok]   README.txt in the release: setup, playing, hotkeys, online.
+
+DEVELOPER TOOLS  (F6 > Tools)
+-----------------------------
+  [ok]   Camera probe: finds camera data by turning the camera and diffing
+         memory; writes camera_probe_<date>_<time>.txt.
+  [ok]   Memory scanner with watch list and pinning.
+  [ok]   Crash handler logs guest registers and call stacks.
+
+
+SETTINGS
+--------
+  All settings live in tenchuz.toml next to tenchuz.exe. The launcher and
+  the F6 menu both edit it in place (comments and [log.levels] kept).
+  Do not use the runtime's own F4 settings screen "Save to config" button:
+  it rewrites the whole file and drops those.
+
+
+PLANNED / NOT YET DONE
+----------------------
+  - Hide HUD for screenshots (needs the HUD draw call).
+  - First-person camera mode.
+  - Texture converter for .xpr (modding tools) - separate task.
+  - Unlock everything / save editor.

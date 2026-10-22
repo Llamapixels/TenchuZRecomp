@@ -1,0 +1,42 @@
+# Base manifest as emitted by ReXGlue v0.10.0.2-dev.gc94f5eb.
+# This file is the *source of truth* for the [project] / [entrypoint] sections
+# and for hand-recorded function boundaries. tools/generate_manifest.py merges
+# this with the derived entry lists into ../tenchuz-recomp/tenchuz_manifest.toml.
+
+[project]
+name = "tenchuz"
+sdk_version = "0.10.0"
+game_root = "../extracted"
+
+[entrypoint]
+file_path = "../extracted/default.xex"
+out_directory_path = "generated/default"
+includes = []
+
+# --- Guest CRT setjmp()/longjmp() ------------------------------------------
+# Tenchu Z statically links the Xbox 360 CRT, so setjmp/longjmp are guest
+# functions rather than imports:
+#   0x82657B00  setjmp(env)  -> saves f14-f31/r13-r31/cr/lr/r1 into env
+#   0x826578C0  longjmp(env,val) -> restores that context and `blr`s to the
+#                                    saved LR (a non-local return)
+# The recompiler's default call lowering turns that `blr` into a plain C++
+# `return`, so control comes back to the *immediate* caller with a clobbered
+# r1 (r1 drift) instead of resuming at the setjmp site. ReXGlue supports the
+# pair natively via these two keys: they lower the call sites to host
+# setjmp()/longjmp() keyed on the guest env pointer, and the emitted
+# `if (tmp != 0) ctx = env;` restores the full guest register context.
+# NOTE: 0x82657B00 is a leaf function absent from .pdata (the usual caveat);
+# it is auto-discovered as a call target, so it is registered without help.
+setjmp_address = 0x82657B00
+longjmp_address = 0x826578C0
+
+# --- Function boundaries the analyzer missed -------------------------------
+# Codegen validation reported these as UnresolvedCall ("target not in any
+# function"): branch targets reached only via unconditional `b` from other
+# functions, so auto-discovery never treated them as function entries.
+# Declaring them here registers them as entry points.
+[entrypoint.functions]
+0x8251F828 = { name = "thunk_8251F828" }
+0x82515C50 = { name = "thunk_82515C50" }
+0x82655CA0 = { name = "thunk_82655CA0" }
+0x825164A8 = { name = "thunk_825164A8" }

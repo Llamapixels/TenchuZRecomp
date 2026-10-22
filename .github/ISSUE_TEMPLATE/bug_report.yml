@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in the game looks, sounds or behaves wrong, stutters, or crashes.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Tenchu Z - HoloCatt Recomp Project! Every report shows how far the game really works.
+        **Never attach or link game files, disc images or save files**, and no links to copies of the game: issues
+        with any of them are removed.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown in the game window's title bar and at the top of the F6 menu.
+      placeholder: 0.1.0-alpha
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Your PC
+      description: Windows version, graphics card and its driver version, CPU.
+      placeholder: Windows 11 24H2, RTX 3060 (driver 581.29), Ryzen 5 5600X
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem
+      options:
+        - Crash or freeze
+        - Graphics look wrong
+        - Sound
+        - Controls
+        - Online / System Link
+        - Setup
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the game
+      description: The mission, menu or cutscene where it happened.
+      placeholder: Mission 3, near the gambling den, at night
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and how to make it happen again
+      description: What you expected, what you saw instead, and the steps that lead to it.
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: Settings
+      description: Render scale, window size or fullscreen, shader preset (F6 > Shader), online or offline.
+      placeholder: 2x, 1920x1080 window, Modern Look, offline
+  - type: textarea
+    id: log
+    attributes:
+      label: tenchuz.log
+      description: Attach logs\tenchuz.log from the game folder (drag the file here). Screenshots or a short video help too.
+  - type: checkboxes
+    id: legal
+    attributes:
+      label: Before sending
+      options:
+        - label: This report contains no game files, disc images, save files or links to copies of the game.
+          required: true

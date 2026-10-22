@@ -1,0 +1,31 @@
+diff --git a/src/ui/imgui_drawer.cpp b/src/ui/imgui_drawer.cpp
+index f270f3c..991e32b 100644
+--- a/src/ui/imgui_drawer.cpp
++++ b/src/ui/imgui_drawer.cpp
+@@ -621,19 +621,21 @@ void ImGuiDrawer::OnKey(KeyEvent& e, bool is_down) {
+   if (auto imGuiKey = VirtualKeyToImGuiKey(virtual_key); imGuiKey) {
+     io.AddKeyEvent(*imGuiKey, is_down);
+   }
++  // TENCHUZ: modifiers go in as ImGuiMod_* key events; ImGui (1.87+)
++  // overwrites io.KeyCtrl etc. from those, so Ctrl+V / Ctrl+C / Ctrl+A in
++  // text fields never worked.
+   switch (virtual_key) {
+     case VirtualKey::kShift:
+-      io.KeyShift = is_down;
++      io.AddKeyEvent(ImGuiMod_Shift, is_down);
+       break;
+     case VirtualKey::kControl:
+-      io.KeyCtrl = is_down;
++      io.AddKeyEvent(ImGuiMod_Ctrl, is_down);
+       break;
+     case VirtualKey::kMenu:
+-      // FIXME(Triang3l): Doesn't work in xenia-ui-window-demo.
+-      io.KeyAlt = is_down;
++      io.AddKeyEvent(ImGuiMod_Alt, is_down);
+       break;
+     case VirtualKey::kLWin:
+-      io.KeySuper = is_down;
++      io.AddKeyEvent(ImGuiMod_Super, is_down);
+       break;
+     default:
+       break;

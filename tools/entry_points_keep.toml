@@ -1,0 +1,59 @@
+﻿# keep list
+0x824805B0 = { name = "extra_824805B0" }   # boot2
+0x82510138 = { name = "fnptr_82510138" }   # boot1
+0x8267C418 = { name = "fnptr_8267C418" }   # 395 bl callers; padding before real function start
+
+
+# --- Code-materialised callback arguments (batch 2026-10-19) ---------------
+# tools/derive_fnptr_targets.py only scans DATA pointers in .rdata. A second
+# class of guest callback is instead built in CODE and handed to a
+# registration routine as an argument, e.g. 0x823B8720 (a leaf function that
+# writes 1 to global 0x833AE0D0):
+#
+#   addis r5, r0, 0x823C
+#   addi  r5, r5, 0x8720        ; r5 = 0x823B8720
+#   bl    0x822A2100            ; register(handler)
+#
+# Such an address never appears in .rdata, so the recompiler had no entry for
+# it and the runtime died with:
+#   [FATAL] Call to invalid or unregistered function at guest address 0x823B8720
+#
+# They are keep-listed (not put in extra_entries.toml) because every one of
+# them sits behind a leaf `blr`/`bctr` and .pdata omits leaf functions, so
+# tools/classify_entry_points.py calls them LABELs and would drop them.
+# KEEP is the safe route: tools/check_branch_targets.py confirms no `b`/`bc`
+# targets any of these, so registering them emits no conditional tail call
+# and cannot reintroduce the r1-drift bug.
+#
+# Provenance: tools/scan_fnptr_args.py (arg register r3..r10 fed by
+# lis+addi/ori, 4-byte aligned, a call within 8 instructions, register not
+# clobbered) -> tools/verify_fnptr_candidates.py (predecessor is a function
+# terminator, not an interior label) -> tools/check_branch_targets.py.
+# 26 candidates, 25 kept; 0x82666314 rejected (resume/return-address label
+# right after a `bl`, stored to 2712(r1) -- not a function).
+
+0x82270480 = { name = "extra_82270480" }   # code-materialised callback arg
+0x822704E8 = { name = "extra_822704E8" }   # code-materialised callback arg
+0x82283A70 = { name = "extra_82283A70" }   # code-materialised callback arg
+0x82283BC0 = { name = "extra_82283BC0" }   # code-materialised callback arg
+0x8229DDC8 = { name = "extra_8229DDC8" }   # code-materialised callback arg
+0x8229E5A0 = { name = "extra_8229E5A0" }   # code-materialised callback arg
+0x8229E8F8 = { name = "extra_8229E8F8" }   # code-materialised callback arg
+0x8229EC08 = { name = "extra_8229EC08" }   # code-materialised callback arg
+0x822A26B0 = { name = "extra_822A26B0" }   # code-materialised callback arg
+0x822E9DD8 = { name = "extra_822E9DD8" }   # code-materialised callback arg
+0x822E9F18 = { name = "extra_822E9F18" }   # code-materialised callback arg
+0x8231CA48 = { name = "extra_8231CA48" }   # code-materialised callback arg
+0x8231CAD8 = { name = "extra_8231CAD8" }   # code-materialised callback arg
+0x82367BD8 = { name = "extra_82367BD8" }   # code-materialised callback arg
+0x823709B0 = { name = "extra_823709B0" }   # code-materialised callback arg
+0x823A5BF0 = { name = "extra_823A5BF0" }   # code-materialised callback arg
+0x823A5C18 = { name = "extra_823A5C18" }   # code-materialised callback arg
+0x823AAF00 = { name = "extra_823AAF00" }   # code-materialised callback arg
+0x823B8720 = { name = "extra_823B8720" }   # code-materialised callback arg
+0x823DDC00 = { name = "extra_823DDC00" }   # code-materialised callback arg
+0x823FB9D0 = { name = "extra_823FB9D0" }   # code-materialised callback arg
+0x823FC348 = { name = "extra_823FC348" }   # code-materialised callback arg
+0x82431DF8 = { name = "extra_82431DF8" }   # code-materialised callback arg
+0x82717A80 = { name = "extra_82717A80" }   # code-materialised callback arg
+0x827F7EB8 = { name = "extra_827F7EB8" }   # code-materialised callback arg

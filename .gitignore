@@ -1,0 +1,37 @@
+# Whitelist: everything is ignored unless listed here, so game files, disc
+# images, generated game code and builds can never be committed by accident.
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/README.md
+!/CHANGELOG.md
+!/LICENSE
+!/FEATURES.txt
+!/SDK-VERSION.md
+!/docs/
+!/extras/
+!/tools/
+!/tenchuz-recomp/
+
+# Project: sources only (generated/ holds code generated from the game).
+/tenchuz-recomp/*
+!/tenchuz-recomp/CMakeLists.txt
+!/tenchuz-recomp/CMakePresets.json
+!/tenchuz-recomp/tenchuz_manifest.toml
+!/tenchuz-recomp/src/
+!/tenchuz-recomp/sdk_patches/
+
+# Never: game-derived data, binaries, scratch files.
+*.iso
+*.xex
+*.xpr
+*.bin
+*.exe
+*.obj
+*.dll
+*.pdb
+*.zip
+__pycache__/
+/tools/disasm_*.txt
+/tools/_*.py
