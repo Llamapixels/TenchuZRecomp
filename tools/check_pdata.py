@@ -10,8 +10,10 @@ import re
 import struct
 
 BASE = 0x82000000
-IMAGE = r"C:\Emulation\360\recomps\tenchu z\tools\tenchuz_decrypted.bin"
-FNPTR = r"C:\Emulation\360\recomps\tenchu z\tools\fnptr_entries.toml"
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+IMAGE = str(PROJECT_ROOT) + r"\tools\tenchuz_decrypted.bin"
+FNPTR = str(PROJECT_ROOT) + r"\tools\fnptr_entries.toml"
 PDATA_VA, PDATA_SZ = 0x8224DE00, 0x12DA8
 
 data = open(IMAGE, "rb").read()

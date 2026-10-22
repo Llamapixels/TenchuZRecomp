@@ -9,7 +9,9 @@ import argparse
 import struct
 
 BASE = 0x82000000
-IMAGE = r"C:\Emulation\360\recomps\tenchu z\tools\tenchuz_decrypted.bin"
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+IMAGE = str(PROJECT_ROOT) + r"\tools\tenchuz_decrypted.bin"
 
 EXEC_SECTIONS = [
     (".text", 0x82270000, 0x599DDC),

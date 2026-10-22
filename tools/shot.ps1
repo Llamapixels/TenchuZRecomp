@@ -1,6 +1,6 @@
 # Capture the entire Windows virtual desktop to a PNG.
 # Usage: powershell -ExecutionPolicy Bypass -File shot.ps1 <out.png>
-param([string]$Out = "C:\Emulation\360\recomps\tools\shot.png")
+param([string]$Out = "shot.png")
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $b = [System.Windows.Forms.SystemInformation]::VirtualScreen

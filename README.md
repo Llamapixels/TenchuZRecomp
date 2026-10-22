@@ -4,6 +4,11 @@
 native Windows game. The game's own code runs natively on your PC, with higher resolutions, modern graphics options,
 mods, cheats, a speedrun timer, a photo mode and System Link co-op over the internet.
 
+> [!TIP]
+> **Press F6 in game for the Tenchu Z menu.** Everything this port adds is there: online play and join codes, your
+> player name, graphics and shader presets, controller and mouse settings, camera, cheats, photo mode, the speedrun
+> timer and the info overlay. A hint at the top of the screen reminds you when the game starts.
+
 > [!WARNING]
 > **This is an alpha, a preview for testers.** The hub and the first missions have been played; the rest of the game
 > hasn't been played through yet on this port, so expect bugs or crashes further on. It has only been tested on one
@@ -24,7 +29,7 @@ mods, cheats, a speedrun timer, a photo mode and System Link co-op over the inte
    out of it into the `extracted` folder (a few minutes) and creates the profile the game needs. If there's no `.iso`
    in the folder, it asks you to pick one. Afterwards the `.iso` isn't needed any more.
 4. Start the game with **`Tenchu Z Launcher.cmd`** (resolution, window, frame rate, then Play) or `tenchuz.exe`.
-   In game, **F6** opens the Tenchu Z menu.
+5. In game, press **F6** for the Tenchu Z menu: online play, graphics, controls, cheats and the other extras.
 
 Windows may warn that the files come from an unknown publisher (they aren't signed): choose **More info > Run
 anyway**. Windows Firewall may ask to allow `tenchuz.exe` the first time; allow it for online play.
@@ -113,7 +118,7 @@ own `default.xex`. Steps: [docs/building.md](docs/building.md). Pull requests ar
 
 ## Respect copyright
 
-- *Tenchu Z* is © FromSoftware, Inc. It was developed by K2 LLC and published by FromSoftware and Microsoft Game
+- *Tenchu Z* is © 2007 FromSoftware, Inc. It was developed by K2 LLC and published by FromSoftware and Microsoft Game
   Studios. This is a fan project. It is not affiliated with, endorsed by or sponsored by FromSoftware, K2, Microsoft or
   any other rights holder. *Tenchu* is a trademark of FromSoftware; *Xbox* and *Xbox 360* are trademarks of Microsoft.
 - This repository contains no game files and no game code: no disc images, no assets, no music, no video, no text,

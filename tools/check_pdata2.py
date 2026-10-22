@@ -4,8 +4,10 @@ import re
 import struct
 
 BASE = 0x82000000
-IMAGE = r"C:\Emulation\360\recomps\tenchu z\tools\tenchuz_decrypted.bin"
-INIT = r"C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\generated\default\tenchuz_init.cpp"
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+IMAGE = str(PROJECT_ROOT) + r"\tools\tenchuz_decrypted.bin"
+INIT = str(PROJECT_ROOT) + r"\tenchuz-recomp\generated\default\tenchuz_init.cpp"
 PDATA_VA, PDATA_SZ = 0x8224DE00, 0x12DA8
 
 data = open(IMAGE, "rb").read()

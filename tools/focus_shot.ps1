@@ -1,6 +1,6 @@
 # Bring a process's main window to the foreground, wait, then capture its rect.
 # Usage: powershell -WindowStyle Hidden -File focus_shot.ps1 <proc> <out.png>
-param([string]$Proc = "dwg2", [string]$Out = "C:\Emulation\360\recomps\tools\focus.png")
+param([string]$Proc = "tenchuz", [string]$Out = "focus.png")
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;

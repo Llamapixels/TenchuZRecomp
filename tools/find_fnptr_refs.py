@@ -10,8 +10,10 @@ import struct
 import sys
 
 BASE = 0x82000000
-IMAGE = r"C:\Emulation\360\recomps\tenchu z\tools\tenchuz_decrypted.bin"
-INIT = r"C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\generated\default\tenchuz_init.cpp"
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+IMAGE = str(PROJECT_ROOT) + r"\tools\tenchuz_decrypted.bin"
+INIT = str(PROJECT_ROOT) + r"\tenchuz-recomp\generated\default\tenchuz_init.cpp"
 
 SECTIONS = [
     (".rdata", 0x82000600, 0x24D7C4, False),

@@ -154,6 +154,7 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     shader_settings::Push(memory_);
     rex::input::mnk::SetMouseLookActive(!visible_ && !mouse_look_paused_);
     DrawOverlay();
+    DrawStartHint();
 
     if (!visible_) {
       return;
@@ -1053,6 +1054,41 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   }
 
   // Drawn every frame, menu open or not.
+  // For the first seconds after start, until the menu is first opened: a
+  // note that F6 is where all the port's features are.
+  void DrawStartHint() {
+    if (visible_) {
+      start_hint_done_ = true;
+    }
+    if (start_hint_done_) {
+      return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (start_hint_since_ == std::chrono::steady_clock::time_point{}) {
+      start_hint_since_ = now;
+    }
+    if (now - start_hint_since_ > std::chrono::seconds(30)) {
+      start_hint_done_ = true;
+      return;
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + 16.0f),
+        ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.75f);
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    if (ImGui::Begin("##tenchuz_start_hint", nullptr, flags)) {
+      // Readable on a TV or a high-resolution window too.
+      ImGui::SetWindowFontScale(std::max(1.0f, viewport->WorkSize.y / 540.0f));
+      ImGui::TextUnformatted("Press F6 for the Tenchu Z menu");
+      ImGui::TextDisabled("Online play, graphics, controls, cheats and more");
+    }
+    ImGui::End();
+  }
+
   void DrawOverlay() {
     const ui_settings::Hud h = ui_settings::hud();
     if (!(h.health || h.enemies || h.timer || h.fps || h.position)) {
@@ -1538,6 +1574,8 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   bool online_loaded_ = false;
   char join_ip_buf_[128] = {0};
   char bind_ip_buf_[32] = {0};
+  bool start_hint_done_ = false;
+  std::chrono::steady_clock::time_point start_hint_since_{};
   char code_buf_[16] = {0};
   char name_buf_[16] = {0};
   std::string running_name_;

@@ -12,7 +12,7 @@ public class Cap {
 }
 "@
 
-$outDir = "C:\Emulation\360\recomps\tenchu z\logs\modtest"
+$outDir = "$(Split-Path -Parent $PSScriptRoot)\logs\modtest"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 for ($n = 0; $n -lt 8; $n++) {

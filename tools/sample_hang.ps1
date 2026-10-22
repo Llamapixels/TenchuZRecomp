@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$root = "C:\Emulation\360\recomps\tenchu z"
+$root = "$(Split-Path -Parent $PSScriptRoot)"
 $exeDir = "$root\tenchuz-recomp\out\build\win-amd64-release"
 $gameDir = "$root\extracted"
 $log = "$root\logs\runtime_$Tag.log"

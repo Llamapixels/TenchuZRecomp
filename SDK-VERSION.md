@@ -3,7 +3,7 @@
 ## Pinned SDK
 
 - **Repository**: https://github.com/rexglue/rexglue-sdk
-- **Local clone**: `C:\Emulation\360\recomps\rexglue-sdk`
+- **Local clone**: `rexglue-sdk` next to this project's folder (or set `REXGLUE_SDK`)
 - **Tag**: `Release v0.10.0` (`v0.10.0-2-gc94f5eb`)
 - **Commit**: `c94f5eb` ("Release v0.10.0"), recursive submodules
 - **CLI version string**: `0.10.0.2-dev.gc94f5eb`
@@ -49,7 +49,7 @@ version (benign).
 
 ## Known SDK issues relevant to this title
 
-1. **Function-discovery gap** (see DWG2 MEMORY.md §6.6): functions reachable only
+1. **Function-discovery gap**: functions reachable only
    via data function-pointer tables are never registered (no MSVC RTTI ⇒ vtable
    pass finds nothing) ⇒ runtime fatal "Call to invalid or unregistered function
    at guest address". Declarative fix: `[entrypoint.functions]` entries, derived

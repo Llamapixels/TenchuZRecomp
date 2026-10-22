@@ -12,9 +12,11 @@ from __future__ import annotations
 import re
 import sys
 
-MAP = (r"C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\out\build"
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+MAP = (str(PROJECT_ROOT) + r"\tenchuz-recomp\out\build"
        r"\win-amd64-release\tenchuz.map")
-INIT = (r"C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\generated"
+INIT = (str(PROJECT_ROOT) + r"\tenchuz-recomp\generated"
         r"\default\tenchuz_init.cpp")
 
 LINE_RE = re.compile(

@@ -3,7 +3,7 @@
 # This isolates the "keys don't reach the game" problem from the game itself.
 param([int]$Seconds = 30)
 $ErrorActionPreference = "Continue"
-$root = "C:\Emulation\360\recomps\tenchu z"
+$root = "$(Split-Path -Parent $PSScriptRoot)"
 $exeDir = "$root\tenchuz-recomp\out\build\win-amd64-release"
 $gameDir = "$root\extracted"
 

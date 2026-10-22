@@ -245,6 +245,8 @@ RELEASE  (tools\package_release.ps1)
          disc images.
   [ok]   Keyboard and mouse on by default in the release settings
          (mnk_mode), so the keyboard works however the game is started.
+  [ok]   Start hint: "Press F6 for the Tenchu Z menu" at the top of the
+         screen for 30 seconds after start, or until F6 is first pressed.
   [ok]   F6 > Tools (memory scanner, camera probe) hidden unless
          developer_tools = true in tenchuz.toml.
   [ok]   Public source and releases: github.com/Llamapixels/TenchuZRecomp

@@ -10,6 +10,12 @@ This is an ALPHA for testers: expect bugs. Report them at
 with logs\tenchuz.log attached.
 
 
+>>> PRESS F6 IN GAME FOR THE TENCHU Z MENU <<<
+Everything this port adds is in that menu: online play and join codes,
+your player name, graphics and shader presets, controls, camera, cheats,
+photo mode, speedrun timer and the info overlay.
+
+
 SETTING UP (once)
 -----------------
 1. Unzip this folder anywhere (it needs about 8 GB free for the game files).

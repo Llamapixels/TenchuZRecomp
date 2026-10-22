@@ -22,6 +22,9 @@ import sys
 sys.path.insert(0, __file__.rsplit("\\", 1)[0])
 import classify_entry_points as c  # noqa: E402
 
+# Project root (this file is in tools/).
+PROJECT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+
 GEN_DIR = c.MANIFEST.rsplit("\\", 1)[0] + "\\generated\\default"
 
 
@@ -64,7 +67,7 @@ def main() -> None:
     else:
         out = subprocess.run(
             [sys.executable, r"tools\scan_fnptr_args.py"],
-            capture_output=True, text=True, cwd=r"C:\Emulation\360\recomps\tenchu z",
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         ).stdout
         addrs = [int(m, 16) for m in re.findall(r"^\s+(0x[0-9A-F]{8})\s+first site",
                                                 out, re.M)]

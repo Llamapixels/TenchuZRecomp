@@ -13,14 +13,14 @@ public class Cap3 {
 }
 "@
 
-$exeDir = "C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\out\build\win-amd64-release"
-$outDir = "C:\Emulation\360\recomps\tenchu z\logs\titleprobe_$Tag"
+$exeDir = "$(Split-Path -Parent $PSScriptRoot)\tenchuz-recomp\out\build\win-amd64-release"
+$outDir = "$(Split-Path -Parent $PSScriptRoot)\logs\titleprobe_$Tag"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Get-Process tenchuz -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
-$log = "C:\Emulation\360\recomps\tenchu z\logs\titleprobe_$Tag.log"
+$log = "$(Split-Path -Parent $PSScriptRoot)\logs\titleprobe_$Tag.log"
 $a = @("--log_level=info", "--log_file=`"$log`"", "--log_flush_interval=1", "--mnk_mode=true")
 $p = Start-Process -FilePath "$exeDir\tenchuz.exe" -ArgumentList $a -WorkingDirectory $exeDir -PassThru
 Write-Host "launched pid=$($p.Id), waiting for title..."

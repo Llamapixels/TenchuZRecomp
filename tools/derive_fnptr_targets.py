@@ -16,19 +16,21 @@ indirect call through one of those tables it hits:
     [FATAL] Call to invalid or unregistered function at guest address 0x.........
 
 The fix applied to this project is declarative: list every such address under
-``[entrypoint.functions]`` in ``dwg2_manifest.toml`` so codegen registers it as
+``[entrypoint.functions]`` in ``tenchuz_manifest.toml`` so codegen registers it as
 a CONFIG entry point. This script derives that list.
 
 Method
 ------
-1. Take the decrypted guest image (dump it from the app; see MEMORY.md).
+1. Take the decrypted guest image: the loaded XEX image from guest memory
+   (base 0x82000000), saved as tools/tenchuz_decrypted.bin. It is game code,
+   so it is never part of the repository.
 2. Take the section table from a verbose codegen run
-   (``rexglue -v codegen dwg2_manifest.toml --ignore-stamp``); the section
+   (``rexglue -v codegen tenchuz_manifest.toml --ignore-stamp``); the section
    lines look like:
        BinaryView: section '.rdata' at 0x82000600 size 0xE82A8 exec=false
 3. Code range = [min start of exec sections, max end of exec sections).
 4. Read the already-known function starts out of the generated
-   ``generated/default/dwg2_init.cpp`` function table.
+   ``generated/default/tenchuz_init.cpp`` function table.
 5. Scan every *non-executable* section for 4-byte-aligned big-endian (PowerPC)
    values inside the code range. Any value that is not an already-known function
    start is a candidate target.

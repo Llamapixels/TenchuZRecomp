@@ -11,14 +11,14 @@ public class Cap2 {
 }
 "@
 
-$exeDir = "C:\Emulation\360\recomps\tenchu z\tenchuz-recomp\out\build\win-amd64-release"
-$outDir = "C:\Emulation\360\recomps\tenchu z\logs\modtest2"
+$exeDir = "$(Split-Path -Parent $PSScriptRoot)\tenchuz-recomp\out\build\win-amd64-release"
+$outDir = "$(Split-Path -Parent $PSScriptRoot)\logs\modtest2"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Get-Process tenchuz -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
-$log = "C:\Emulation\360\recomps\tenchu z\logs\modtest2.log"
+$log = "$(Split-Path -Parent $PSScriptRoot)\logs\modtest2.log"
 Remove-Item $log -Force -ErrorAction SilentlyContinue
 
 $a = @("--log_level=info", "--log_file=`"$log`"", "--log_flush_interval=1", "--mnk_mode=true")
