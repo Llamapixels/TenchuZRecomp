@@ -1,6 +1,6 @@
 # Changelog
 
-## Next
+## 0.1.1-alpha
 
 - **Keyboard and mouse rebinding** in F6 > Controller: press Set, then the key or mouse button to use. Shift, Ctrl
   and Alt work on their own and as part of a combination; + adds a second key for an input.

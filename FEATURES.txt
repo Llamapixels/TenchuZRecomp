@@ -245,8 +245,8 @@ LAUNCHER  (tools\launcher\Tenchu Z Launcher.cmd)
 
 RELEASE  (tools\package_release.ps1)
 ------------------------------------
-  [ok]   Version 0.1.0-alpha: the window title reads "Tenchu Z - HoloCatt
-         Recomp Project - v0.1.0-alpha"; the F6 menu shows the version too
+  [ok]   Version (now 0.1.1-alpha): the window title reads "Tenchu Z - HoloCatt
+         Recomp Project - v<version>"; the F6 menu shows the version too
          (tenchuz-recomp/src/version.h).
   [ok]   Setup checks the game version (SHA-1 of default.xex: Tenchu Z USA/
          Europe) before extracting, and rejects files that aren't Xbox 360

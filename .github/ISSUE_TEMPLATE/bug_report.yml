@@ -13,7 +13,7 @@ body:
     attributes:
       label: Version
       description: Shown in the game window's title bar and at the top of the F6 menu.
-      placeholder: 0.1.0-alpha
+      placeholder: 0.1.1-alpha
     validations:
       required: true
   - type: input
