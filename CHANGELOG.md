@@ -1,6 +1,6 @@
 # Changelog
 
-## Next
+## 0.1.2-alpha
 
 - **Vulkan renderer (work in progress)**: choose Direct3D 12 or Vulkan in the launcher or in F6 > Game > Renderer. Try Vulkan if the
   game runs slowly or does not start with Direct3D 12. If Vulkan cannot start, the game uses Direct3D 12. Shader
