@@ -4,4 +4,4 @@
 #pragma once
 
 #define TENCHUZ_PROJECT_NAME "Tenchu Z - HoloCatt Recomp Project"
-#define TENCHUZ_VERSION "0.1.2-alpha"
+#define TENCHUZ_VERSION "0.1.3-alpha"

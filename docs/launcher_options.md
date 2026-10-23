@@ -178,6 +178,9 @@ with a smaller guest mode, set both explicitly.
 |---|---|---|---|
 | `gpu_backend` | string | `"d3d12"` | `"d3d12"` or `"vulkan"`. Launcher: Renderer; in game: F6 > Game > Renderer (restart to switch). If Vulkan cannot start, the game uses Direct3D 12 for that run. Shader presets need Direct3D 12. |
 | `vulkan_device` | int | -1 | Vulkan GPU index (-1 picks automatically); the log lists the GPUs. |
+| `clear_memory_page_state` | bool | true | At the end of each frame, mark memory the GPU wrote as valid for the CPU again. F6 > Game > "Sync GPU-written memory every frame"; applies at once. Off is Xenia's `d3d12_clear_memory_page_state = false` (Xenia's default), reported to fix black menus; slightly faster, may break effects that read back GPU output. Same setting for Direct3D 12 and Vulkan. |
+| `readback_memexport` | bool | true (template: false) | CPU readback of shader memory-export writes. Off avoids the CPU waiting for the GPU after those draws. Same as Xenia's `readback_memexport = false` that players use for this game. |
+| `occlusion_query_enable` | bool | true (template: false) | Measure the game's occlusion (visibility) queries on the GPU. Off answers them with a fixed "visible" sample count (`query_occlusion_fake_sample_count`, 1000), like Xenia's `occlusion_query = "fast"`. If something that should be hidden shows through walls, set it back to true. |
 
 ### Frame rate changes game speed — this is expected
 

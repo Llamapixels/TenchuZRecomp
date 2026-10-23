@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3-alpha
+
+- **Single-player levels in multiplayer**: the System Link host can pick any of the 14 single-player missions in
+  F6 > Online and tick "Use this level in multiplayer" before starting. Level list from a community Xenia cheat table.
+- **Black menu fix option**: F6 > Game > "Sync GPU-written memory every frame". Turn it off if menus show up black
+  (the same as Xenia's `d3d12_clear_memory_page_state = false`). On by default; applies at once.
+- Performance settings Xenia players use for this game are now on in the shipped `tenchuz.toml`:
+  `readback_memexport = false` and `occlusion_query_enable = false`. Set either back to `true` if something looks
+  wrong.
+
 ## 0.1.2-alpha
 
 - **Vulkan renderer (work in progress)**: choose Direct3D 12 or Vulkan in the launcher or in F6 > Game > Renderer. Try Vulkan if the

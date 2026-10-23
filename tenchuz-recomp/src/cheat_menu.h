@@ -71,6 +71,7 @@
 #include "cheat_scanner.h"
 #include "gameplay.h"
 #include "key_bindings.h"
+#include "mp_level.h"
 #include "net_settings.h"
 #include "photo_mode.h"
 #include "settings_store.h"
@@ -88,12 +89,14 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       : rex::ui::ImGuiDialog(drawer), memory_(memory) {
     scanner_.SetMemory(memory);
     probe_.SetMemory(memory);
+    mp_level::SetMemory(memory);
   }
 
   void SetMemory(rex::memory::Memory* memory) {
     memory_ = memory;
     scanner_.SetMemory(memory);
     probe_.SetMemory(memory);
+    mp_level::SetMemory(memory);
   }
 
   // Where settings are saved (tenchuz.toml) and reports are written.
@@ -582,6 +585,52 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   // Online - System Link over IP (net_settings.h). Play with the game's own
   // System Link menu; these only say where to find each other.
   // ---------------------------------------------------------------------
+  // Play a single-player level in a System Link game (host only): the level is
+  // written into the lobby's settings while the option is on.
+  void DrawMultiplayerLevel() {
+    ImGui::SeparatorText("Single-player levels in multiplayer");
+    ImGui::TextWrapped(
+        "Host: open the System Link lobby, pick the level here, tick the box, "
+        "then start the game.");
+    const auto& levels = mp_level::kLevels;
+    int index = 0;
+    for (int i = 0; i < static_cast<int>(std::size(levels)); ++i) {
+      if (levels[i].id == mp_level::level()) {
+        index = i;
+      }
+    }
+    ImGui::SetNextItemWidth(320);
+    if (ImGui::BeginCombo("Level##mp_level", levels[index].name)) {
+      for (int i = 0; i < static_cast<int>(std::size(levels)); ++i) {
+        if (ImGui::Selectable(levels[i].name, i == index)) {
+          mp_level::SetLevel(levels[i].id);
+        }
+      }
+      ImGui::EndCombo();
+    }
+    bool on = mp_level::enabled();
+    if (ImGui::Checkbox("Use this level in multiplayer", &on)) {
+      mp_level::SetEnabled(on);
+    }
+    if (!on) {
+      return;
+    }
+    const mp_level::Status s = mp_level::GetStatus();
+    const ImVec4 green(0.4f, 1.0f, 0.4f, 1.0f);
+    const ImVec4 grey(0.7f, 0.7f, 0.7f, 1.0f);
+    if (s.address) {
+      ImGui::TextColored(green, "Lobby found: level %u -> %u", s.lobby_level,
+                         s.current_level);
+    } else if (s.searching) {
+      ImGui::TextColored(grey, "Looking for the lobby...");
+    } else if (s.candidates > 1) {
+      ImGui::TextColored(grey, "Lobby not found yet (%d possible places). "
+                               "Open the System Link lobby.", s.candidates);
+    } else {
+      ImGui::TextColored(grey, "Lobby not found yet. Open the System Link lobby.");
+    }
+  }
+
   void DrawOnline() {
     if (!online_loaded_) {
       std::snprintf(bind_ip_buf_, sizeof(bind_ip_buf_), "%s",
@@ -784,6 +833,8 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       ImGui::EndTable();
     }
 
+    DrawMultiplayerLevel();
+
     // --- Advanced: router option, local network, virtual LAN --------------
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Advanced")) {
@@ -878,6 +929,18 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     ImGui::TextDisabled("The game runs at 30 fps like on the Xbox 360. This "
                         "shows 60 while your character is in the world; menus "
                         "stay at 30. Keep the console refresh at 60 Hz.");
+
+    ImGui::Separator();
+    bool page_state = rex::cvar::Query<bool>("clear_memory_page_state");
+    if (ImGui::Checkbox("Sync GPU-written memory every frame", &page_state)) {
+      rex::cvar::SetFlagByName("clear_memory_page_state",
+                               page_state ? "true" : "false");
+      Save({"clear_memory_page_state"});
+    }
+    ImGui::TextDisabled("If menus show up black, turn this off (the same as "
+                        "Xenia's d3d12_clear_memory_page_state = false). Off is "
+                        "slightly faster but can break effects that reuse what "
+                        "the GPU drew. Applies at once.");
 
     ImGui::Separator();
     auto api_name = [](const std::string& api) {

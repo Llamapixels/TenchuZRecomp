@@ -25,6 +25,7 @@ set(TENCHUZ_SOURCES
     src/net_settings.cpp
     src/upnp.cpp
     src/key_bindings.cpp
+    src/mp_level.cpp
 )
 
 if(WIN32)

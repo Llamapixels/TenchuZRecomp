@@ -120,6 +120,19 @@ VIDEO  (F6 > Shader, launcher)
          beams, carts and trees were missing or see-through (textures with
          a LOD bias were scaled to near black). SDK patch 6. Checked in
          mission 51 against Direct3D 12.
+  [test] Black menu fix (2026-10-23): F6 > Game > "Sync GPU-written memory
+         every frame" (clear_memory_page_state in tenchuz.toml, applies at
+         once). On by default; off is Xenia's
+         d3d12_clear_memory_page_state = false, which a player reports
+         fixes menus showing black. Not yet tried on a PC with black menus.
+  [test] Performance settings (2026-10-23): readback_memexport = false and
+         occlusion_query_enable = false in the shipped tenchuz.toml, the
+         choices Xenia players use for this game (no CPU wait on GPU memory
+         writes; visibility queries answered "visible" instead of measured).
+         A/B in a mission (RTX 4060 Ti, Direct3D 12): no visible difference
+         either way, nothing broke, so they stay for slower PCs. Vulkan ran
+         at about the same frame rate with them. Set either back to true if
+         something looks wrong.
   [exp]  60 fps (2026-10-22): F6 > Game > 60 fps (experimental), or the
          launcher's "60 fps while playing"; frame_rate_60 in tenchuz.toml,
          applies at once. The game normally shows a new frame every second
@@ -262,6 +275,13 @@ ONLINE  (F6 > Online, game's System Link mode)
   [test] The game keeps full speed when its window is in the background
          (1 ms timer, Windows background throttling off), so a host who
          alt-tabs does not slow down the game for the other players.
+  [ok]   Single-player levels in multiplayer (2026-10-23): F6 > Online,
+         pick one of the 14 single-player missions and tick "Use this level
+         in multiplayer" in the System Link lobby (host). A background search
+         finds the lobby's level setting (layout and level ids from a
+         community Xenia cheat table) and keeps the chosen level written
+         there. Verified hosting System Link: Daylight Battle On Deck, then
+         Divine Punishment Tenchu, loaded as chosen.
 
 GAME  (F6 > Game)
 -----------------
@@ -299,7 +319,7 @@ LAUNCHER  (tools\launcher\Tenchu Z Launcher.cmd)
 
 RELEASE  (tools\package_release.ps1)
 ------------------------------------
-  [ok]   Version (now 0.1.2-alpha): the window title reads "Tenchu Z - HoloCatt
+  [ok]   Version (now 0.1.3-alpha): the window title reads "Tenchu Z - HoloCatt
          Recomp Project - v<version>"; the F6 menu shows the version too
          (tenchuz-recomp/src/version.h).
   [ok]   Setup checks the game version (SHA-1 of default.xex: Tenchu Z USA/

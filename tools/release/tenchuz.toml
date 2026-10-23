@@ -26,6 +26,19 @@ skip_intro_movies = true
 # keybind_* settings, e.g. keybind_a = "Space"; the full list is in README.txt.
 mnk_mode = true
 
+# Performance (the same choices Xenia players use for this game):
+# readback_memexport = false stops the CPU waiting for the GPU after shader
+# memory writes. occlusion_query_enable = false answers the game's visibility
+# tests with a fixed "visible" result instead of measuring them on the GPU
+# (Xenia's occlusion_query = "fast"). Set either back to true if something
+# looks wrong.
+readback_memexport = false
+occlusion_query_enable = false
+
+# If menus show up black, set this to false (F6 > Game > "Sync GPU-written
+# memory every frame"); the same as Xenia's d3d12_clear_memory_page_state.
+clear_memory_page_state = true
+
 # Per-category log levels. The "gpu" category logs two harmless errors for
 # every empty resolve the game issues (~180 a second), so it is turned down
 # to critical. Set it to "error" when diagnosing a rendering problem.
