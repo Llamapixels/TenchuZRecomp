@@ -85,6 +85,17 @@ void set_god_mode(bool enabled);
 bool free_shopping();
 void set_free_shopping(bool enabled);
 
+// The game's own HUD (health, item ring, ki and partner cards): hidden while
+// this is on, for screenshots and videos (F11, F6 > HUD).
+bool hide_game_hud();
+void set_hide_game_hud(bool hidden);
+
+// Experimental 60 fps: while the player's character exists (hub and
+// missions) the game presents every vblank instead of every second one.
+// Menus and loading screens stay at 30 because their animations are per frame.
+bool frame_rate_60();
+void set_frame_rate_60(bool enabled);
+
 // Locates the locally controlled player character. Returns false outside of a
 // mission (no player character exists) or before the runtime is up.
 bool FindLocalPlayer(rex::memory::Memory* memory, PlayerHealth* out);

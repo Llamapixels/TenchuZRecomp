@@ -4,6 +4,14 @@
 
 #include "gameplay.h"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <cmath>
 
 #include "controller.h"
@@ -27,6 +35,11 @@ REXCVAR_DEFINE_BOOL(god_mode, false, "Tenchu Z",
                     "The local player takes no damage (F8 toggles in game)");
 REXCVAR_DEFINE_BOOL(free_shopping, false, "Tenchu Z",
                     "Shop purchases do not cost money");
+REXCVAR_DEFINE_BOOL(hide_game_hud, false, "Tenchu Z",
+                    "Hide the game's HUD (F11 toggles in game)");
+REXCVAR_DEFINE_BOOL(frame_rate_60, false, "Tenchu Z",
+                    "Experimental: 60 fps while your character is in the "
+                    "world (menus stay at 30)");
 REXCVAR_DEFINE_BOOL(camera_invert_x, false, "Tenchu Z",
                     "Invert the camera's horizontal (right stick X) axis");
 REXCVAR_DEFINE_BOOL(camera_invert_y, false, "Tenchu Z",
@@ -57,6 +70,7 @@ REXCVAR_DEFINE_BOOL(skip_intro_movies, false, "Tenchu Z",
 // Original (unhooked) bodies of the functions replaced below.
 REX_EXTERN(__imp__sub_822D8C20);
 REX_EXTERN(__imp__sub_8229A940);
+REX_EXTERN(__imp__sub_8241BDE0);
 REX_EXTERN(__imp__sub_8228C7D8);
 REX_EXTERN(__imp__sub_82296FF8);
 REX_EXTERN(__imp__sub_8241BF50);
@@ -210,6 +224,38 @@ bool free_shopping() { return LoadFlag(REXCVAR_GET(free_shopping)); }
 void set_free_shopping(bool enabled) {
   StoreFlag(REXCVAR_GET(free_shopping), enabled);
   REXLOG_INFO("free shopping {}", enabled ? "on" : "off");
+}
+
+bool hide_game_hud() { return LoadFlag(REXCVAR_GET(hide_game_hud)); }
+
+bool frame_rate_60() { return LoadFlag(REXCVAR_GET(frame_rate_60)); }
+
+void set_frame_rate_60(bool enabled) {
+  StoreFlag(REXCVAR_GET(frame_rate_60), enabled);
+  REXLOG_INFO("60 fps {}", enabled ? "on" : "off");
+}
+
+// The HUD is hidden in the GPU plugin: in a mission the game draws the 3D
+// frame, then its final screen pass (pixel shader 822F99ECDB1B0ACD), then all
+// 2D on top. The plugin skips the draws after that pass until the frame is
+// shown. The HUD's own code (CCockpit, sub_82394AF0) only updates sprites that
+// another part of the game draws, so skipping it froze the HUD instead.
+void set_hide_game_hud(bool hidden) {
+  StoreFlag(REXCVAR_GET(hide_game_hud), hidden);
+  using HideFn = void (*)(uint64_t);
+  static const HideFn hide = [] {
+    HMODULE plugin = GetModuleHandleW(L"rexgpu-xenos.dll");
+    return plugin ? reinterpret_cast<HideFn>(
+                        GetProcAddress(plugin, "rex_hide_draws_after_shader"))
+                  : nullptr;
+  }();
+  if (!hide) {
+    REXLOG_WARN("hide HUD: GPU plugin has no rex_hide_draws_after_shader");
+    return;
+  }
+  constexpr uint64_t kFinalScreenPass = 0x822F99ECDB1B0ACDull;
+  hide(hidden ? kFinalScreenPass : 0);
+  REXLOG_INFO("game HUD {}", hidden ? "hidden" : "shown");
 }
 
 CameraInput camera_input() {
@@ -517,6 +563,30 @@ REX_HOOK_RAW(sub_822D8C20) {
     }
   }
   __imp__sub_822D8C20(ctx, base);
+}
+
+// D3D: before every Swap, builds the GPU's wait for the vblank the frame may
+// be shown on, from the device's presentation interval (device + 13248). The
+// game sets it to 2, so it shows a frame every second vblank: 30 fps at 60 Hz.
+// Its gameplay advances by elapsed time, so with 60 fps on the interval is 1
+// for this call while the player's character exists. Menus keep 2: their
+// animations step per frame and would run twice as fast.
+REX_HOOK_RAW(sub_8241BDE0) {
+  namespace gp = tenchuz::gameplay;
+  constexpr uint32_t kOffsetPresentInterval = 13248;
+  uint8_t* interval = base + ctx.r3.u32 + kOffsetPresentInterval;
+  bool changed = false;
+  if (gp::frame_rate_60() && gp::LoadBeU32(interval) == 2) {
+    gp::PlayerHealth player;
+    if (gp::FindLocalPlayer(gp::g_memory, &player)) {
+      gp::StoreBeU32(interval, 1);
+      changed = true;
+    }
+  }
+  __imp__sub_8241BDE0(ctx, base);
+  if (changed) {
+    gp::StoreBeU32(interval, 2);
+  }
 }
 
 // Spend money. A plain return leaves the balance untouched; the shop code has

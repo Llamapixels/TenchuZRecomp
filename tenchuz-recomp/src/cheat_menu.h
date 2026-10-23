@@ -439,6 +439,11 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   // restart.
   // ---------------------------------------------------------------------
   void DrawShader() {
+    if (ui_settings::active_renderer() != "d3d12") {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                         "Shader presets need the Direct3D 12 renderer "
+                         "(F6 > Game > Renderer).");
+    }
     std::vector<std::string> names;
     const std::string& loaded = shader_settings::loaded_preset();
     const std::string selected = shader_settings::selected_preset();
@@ -863,6 +868,60 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       ui_settings::set_mute_when_unfocused(mute);
       Save({"mute_when_unfocused"});
     }
+
+    ImGui::Separator();
+    bool fps60 = gameplay::frame_rate_60();
+    if (ImGui::Checkbox("60 fps (experimental)", &fps60)) {
+      gameplay::set_frame_rate_60(fps60);
+      Save({"frame_rate_60"});
+    }
+    ImGui::TextDisabled("The game runs at 30 fps like on the Xbox 360. This "
+                        "shows 60 while your character is in the world; menus "
+                        "stay at 30. Keep the console refresh at 60 Hz.");
+
+    ImGui::Separator();
+    auto api_name = [](const std::string& api) {
+      return api == "vulkan" ? "Vulkan" : "Direct3D 12";
+    };
+    const std::string selected = ui_settings::renderer();
+    const std::string& active = ui_settings::active_renderer();
+    ImGui::SetNextItemWidth(200);
+    if (ImGui::BeginCombo("Renderer", api_name(selected))) {
+      for (const char* api : {"d3d12", "vulkan"}) {
+        if (ImGui::Selectable(api_name(api), selected == api)) {
+          ui_settings::set_renderer(api);
+          Save({"gpu_backend"});
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::TextDisabled("Try Vulkan if the game runs slowly or does not start "
+                        "with Direct3D 12. Shader presets need Direct3D 12.");
+    if (selected == ui_settings::requested_renderer() && selected != active) {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                         "Vulkan could not start on this PC, so the game is "
+                         "using Direct3D 12 (see logs\\tenchuz.log).");
+    } else if (selected != active) {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                         "Running %s. Restart to switch to %s.",
+                         api_name(active), api_name(selected));
+      if (ImGui::Button("Restart now##renderer")) {
+        ImGui::OpenPopup("Restart Tenchu Z?##renderer");
+      }
+      if (ImGui::BeginPopupModal("Restart Tenchu Z?##renderer", nullptr,
+                                 ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Unsaved progress will be lost.");
+        if (ImGui::Button("Restart")) {
+          ImGui::CloseCurrentPopup();
+          Restart();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+          ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+      }
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1030,6 +1089,15 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     }
     ImGui::TextDisabled("0%% turns rumble off.");
 
+    ImGui::Separator();
+    bool directinput = rex::cvar::Query<bool>("input_directinput");
+    if (ImGui::Checkbox("Older USB controllers (DirectInput)", &directinput)) {
+      rex::cvar::SetFlagByName("input_directinput", directinput ? "true" : "false");
+      Save({"input_directinput"});
+    }
+    ImGui::TextDisabled("Only for generic pads that are not detected otherwise. "
+                        "Applies at the next start; can slow start-up.");
+
     DrawKeyBindings();
   }
 
@@ -1156,6 +1224,15 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   // HUD - the always-on panel (ui_settings.h).
   // ---------------------------------------------------------------------
   void DrawHudSettings() {
+    bool hide_hud = gameplay::hide_game_hud();
+    if (ImGui::Checkbox("Hide the game's HUD (F11)", &hide_hud)) {
+      gameplay::set_hide_game_hud(hide_hud);
+      Save({"hide_game_hud"});
+    }
+    ImGui::TextDisabled("Health, item ring and partner cards; for screenshots "
+                        "and videos.");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Tenchu Z panel:");
     ui_settings::Hud h = ui_settings::hud();
     bool changed = false;
     changed |= ImGui::Checkbox("Health", &h.health);
@@ -1163,6 +1240,8 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
                                &h.enemies);
     changed |= ImGui::Checkbox("Speedrun timer", &h.timer);
     changed |= ImGui::Checkbox("Frame rate", &h.fps);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(30 fps as on the Xbox 360; 60 with F6 > Game > 60 fps)");
     changed |= ImGui::Checkbox("Position", &h.position);
     const char* corners[] = {"Top left", "Top right", "Bottom left",
                              "Bottom right"};
@@ -1263,8 +1342,10 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
         fps_sample_frames_ = frames;
         fps_sample_time_ = now;
       }
-      ImGui::Text("Game %.0f fps   Display %.0f fps (%.1f ms)", game_fps_,
-                  io.Framerate, 1000.0f / std::max(io.Framerate, 1.0f));
+      // The first number is the real frame rate (new frames from the game,
+      // 30 on the Xbox 360). The window is redrawn more often than that, but
+      // the redraws repeat the same game frame.
+      ImGui::Text("FPS %.0f   (window redraws %.0f/s)", game_fps_, io.Framerate);
     }
     if (h.position) {
       float xyz[3];

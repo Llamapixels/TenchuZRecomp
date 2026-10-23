@@ -1,0 +1,70 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index dce3dbf..cd7e0f2 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -636,6 +636,9 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // replaces the value with +0 if the minimum of the two operands is 0. This
+   // must be called with absolute values of operands - use GetAbsoluteOperand!
+   spv::Id ZeroIfAnyOperandIsZero(spv::Id value, spv::Id operand_0_abs, spv::Id operand_1_abs);
++  // Whether min(|a|, |b|) counts as zero for Shader Model 3 multiplication:
++  // +0, or a denormal when the host doesn't flush them (TENCHUZ).
++  spv::Id IsSm3MultiplicandZero(spv::Id min_abs, uint32_t num_components);
+   // Conditionally discard the current fragment. Changes the build point.
+   void KillPixel(spv::Id condition, uint8_t memexport_eM_potentially_written_before);
+   // Return type is a rex::bit_count(result.GetUsedResultComponents())-component
+diff --git a/src/graphics/pipeline/shader/spirv_translator_alu.cpp b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+index 706ac7e..4014595 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_alu.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+@@ -30,14 +30,32 @@ spv::Id SpirvShaderTranslator::ZeroIfAnyOperandIsZero(spv::Id value, spv::Id ope
+   assert_true(builder_->getNumComponents(operand_1_abs) == num_components);
+   return builder_->createTriOp(
+       spv::OpSelect, type_float_,
+-      builder_->createBinOp(spv::OpFOrdEqual, type_bool_vectors_[num_components - 1],
+-                            builder_->createBinBuiltinCall(type_float_vectors_[num_components - 1],
+-                                                           ext_inst_glsl_std_450_, GLSLstd450NMin,
+-                                                           operand_0_abs, operand_1_abs),
+-                            const_float_vectors_0_[num_components - 1]),
++      IsSm3MultiplicandZero(
++          builder_->createBinBuiltinCall(type_float_vectors_[num_components - 1],
++                                         ext_inst_glsl_std_450_, GLSLstd450NMin, operand_0_abs,
++                                         operand_1_abs),
++          uint32_t(num_components)),
+       const_float_vectors_0_[num_components - 1], value);
+ }
+ 
++spv::Id SpirvShaderTranslator::IsSm3MultiplicandZero(spv::Id min_abs, uint32_t num_components) {
++  // TENCHUZ: the guest treats denormals as zero here. Hosts that flush them
++  // compare them equal to 0, but some (NVIDIA on Vulkan) keep them, so a
++  // denormal times a huge value would not come out as zero.
++  if (features_.denorm_flush_to_zero_float32) {
++    return builder_->createBinOp(spv::OpFOrdEqual, type_bool_vectors_[num_components - 1],
++                                 min_abs, const_float_vectors_0_[num_components - 1]);
++  }
++  spv::Id float_min = builder_->makeFloatConstant(FLT_MIN);
++  if (num_components > 1) {
++    std::vector<spv::Id> float_min_components(num_components, float_min);
++    float_min = builder_->makeCompositeConstant(type_float_vectors_[num_components - 1],
++                                                float_min_components);
++  }
++  return builder_->createBinOp(spv::OpFOrdLessThan, type_bool_vectors_[num_components - 1],
++                               min_abs, float_min);
++}
++
+ void SpirvShaderTranslator::KillPixel(spv::Id condition,
+                                       uint8_t memexport_eM_potentially_written_before) {
+   SpirvBuilder::IfBuilder kill_if(condition, spv::SelectionControlMaskNone, *builder_);
+@@ -233,11 +251,10 @@ spv::Id SpirvShaderTranslator::ProcessVectorAluOperation(
+           different_operands[i] =
+               GetAbsoluteOperand(different_operands[i], instr.vector_operands[i]);
+         }
+-        spv::Id different_zero = builder_->createBinOp(
+-            spv::OpFOrdEqual, type_bool_vectors_[different_count - 1],
++        spv::Id different_zero = IsSm3MultiplicandZero(
+             builder_->createBinBuiltinCall(different_type, ext_inst_glsl_std_450_, GLSLstd450NMin,
+                                            different_operands[0], different_operands[1]),
+-            const_float_vectors_0_[different_count - 1]);
++            different_count);
+         // Replace with +0.
+         different_result =
+             builder_->createTriOp(spv::OpSelect, different_type, different_zero,

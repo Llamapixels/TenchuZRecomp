@@ -1,0 +1,111 @@
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index 9ce3bb4..6b97908 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -2030,10 +2030,23 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+         }
+ 
+         // Apply the exponent bias from the bits 13:18 of the fetch constant
+-        // word 4.
++        // word 3 (TENCHUZ: was read from word 4, which holds the LOD bias
++        // there, so textures with a LOD bias came out near black on Vulkan).
++        id_vector_temp_.clear();
++        id_vector_temp_.push_back(const_int_0_);
++        id_vector_temp_.push_back(
++            builder_->makeIntConstant(int((fetch_constant_word_0_index + 3) >> 2)));
++        id_vector_temp_.push_back(
++            builder_->makeIntConstant(int((fetch_constant_word_0_index + 3) & 3)));
++        spv::Id fetch_constant_word_3_signed = builder_->createUnaryOp(
++            spv::OpBitcast, type_int_,
++            builder_->createLoad(builder_->createAccessChain(spv::StorageClassUniform,
++                                                             uniform_fetch_constants_,
++                                                             id_vector_temp_),
++                                 spv::NoPrecision));
+         spv::Id result_exponent_bias = builder_->createBinBuiltinCall(
+             type_float_, ext_inst_glsl_std_450_, GLSLstd450Ldexp, const_float_1_,
+-            builder_->createTriOp(spv::OpBitFieldSExtract, type_int_, fetch_constant_word_4_signed,
++            builder_->createTriOp(spv::OpBitFieldSExtract, type_int_, fetch_constant_word_3_signed,
+                                   builder_->makeUintConstant(13), builder_->makeUintConstant(6)));
+         {
+           uint32_t result_remaining_components = used_result_nonzero_components;
+diff --git a/src/graphics/pipeline/shader/spirv_translator_rb.cpp b/src/graphics/pipeline/shader/spirv_translator_rb.cpp
+index 765c141..83e11fc 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_rb.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_rb.cpp
+@@ -16,6 +16,7 @@
+ #include <SPIRV/GLSL.std.450.h>
+ 
+ #include <rex/assert.h>
++#include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/render_target/cache.h>
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+ #include <rex/graphics/util/draw.h>
+@@ -522,11 +523,25 @@ void SpirvShaderTranslator::CompleteFragmentShaderInMain() {
+               spv::OpIEqual, type_bool_, alpha_test_function,
+               builder_->makeUintConstant(uint32_t(xenos::CompareFunction::kNotEqual))),
+           spv::SelectionControlDontFlattenMask, *builder_, 1, 2);
++      // TENCHUZ: use_fuzzy_alpha_epsilon, as in the DXBC translator - compare
++      // with a small epsilon (prevents garbled alpha-tested surfaces on NVIDIA).
++      const bool fuzzy_alpha = REXCVAR_GET(use_fuzzy_alpha_epsilon);
++      spv::Id fuzzy_epsilon = builder_->makeFloatConstant(1e-3f);
+       spv::Id alpha_test_result_not_equal;
+       {
+         // "Not equal" function.
+-        alpha_test_result_not_equal = builder_->createBinOp(spv::OpFUnordNotEqual, type_bool_,
+-                                                            alpha_test_alpha, alpha_test_reference);
++        if (fuzzy_alpha) {
++          spv::Id diff = builder_->createUnaryBuiltinCall(
++              type_float_, ext_inst_glsl_std_450_, GLSLstd450FAbs,
++              builder_->createBinOp(spv::OpFSub, type_float_, alpha_test_alpha,
++                                    alpha_test_reference));
++          alpha_test_result_not_equal = builder_->createUnaryOp(
++              spv::OpLogicalNot, type_bool_,
++              builder_->createBinOp(spv::OpFOrdLessThan, type_bool_, diff, fuzzy_epsilon));
++        } else {
++          alpha_test_result_not_equal = builder_->createBinOp(
++              spv::OpFUnordNotEqual, type_bool_, alpha_test_alpha, alpha_test_reference);
++        }
+       }
+       if_alpha_test_function_is_not_equal.makeBeginElse();
+       spv::Id alpha_test_result_non_not_equal;
+@@ -535,10 +550,37 @@ void SpirvShaderTranslator::CompleteFragmentShaderInMain() {
+         static const spv::Op kAlphaTestOps[] = {spv::OpFOrdLessThan, spv::OpFOrdEqual,
+                                                 spv::OpFOrdGreaterThan};
+         for (uint32_t i = 0; i < 3; ++i) {
++          spv::Id comparison;
++          if (fuzzy_alpha) {
++            if (i == 0) {
++              // alpha - epsilon < reference
++              comparison = builder_->createBinOp(
++                  spv::OpFOrdLessThan, type_bool_,
++                  builder_->createBinOp(spv::OpFSub, type_float_, alpha_test_alpha,
++                                        fuzzy_epsilon),
++                  alpha_test_reference);
++            } else if (i == 1) {
++              // |alpha - reference| < epsilon
++              comparison = builder_->createBinOp(
++                  spv::OpFOrdLessThan, type_bool_,
++                  builder_->createUnaryBuiltinCall(
++                      type_float_, ext_inst_glsl_std_450_, GLSLstd450FAbs,
++                      builder_->createBinOp(spv::OpFSub, type_float_, alpha_test_alpha,
++                                            alpha_test_reference)),
++                  fuzzy_epsilon);
++            } else {
++              // reference < alpha + epsilon
++              comparison = builder_->createBinOp(
++                  spv::OpFOrdLessThan, type_bool_, alpha_test_reference,
++                  builder_->createBinOp(spv::OpFAdd, type_float_, alpha_test_alpha,
++                                        fuzzy_epsilon));
++            }
++          } else {
++            comparison = builder_->createBinOp(kAlphaTestOps[i], type_bool_, alpha_test_alpha,
++                                               alpha_test_reference);
++          }
+           spv::Id alpha_test_comparison_result = builder_->createBinOp(
+-              spv::OpLogicalAnd, type_bool_,
+-              builder_->createBinOp(kAlphaTestOps[i], type_bool_, alpha_test_alpha,
+-                                    alpha_test_reference),
++              spv::OpLogicalAnd, type_bool_, comparison,
+               builder_->createBinOp(
+                   spv::OpINotEqual, type_bool_,
+                   builder_->createBinOp(spv::OpBitwiseAnd, type_uint_, alpha_test_function,

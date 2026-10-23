@@ -31,9 +31,14 @@ git; never share it).
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0003-menu-modifier-keys.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0004-vector-pack-aliasing.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0005-keyboard-modifiers.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0006-vulkan-textures.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0007-directinput-off.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0008-hide-overlay.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0009-vulkan-denormals.patch
    ```
    (adjust the path to where you cloned this repository).
-3. Configure once with the SDK's `win-amd64` preset, then build and install it with `tools\build_sdk.bat` from this
+3. Configure once with the SDK's `win-amd64` preset and Vulkan turned on
+   (`cmake --preset win-amd64 -DREXGLUE_USE_VULKAN=ON`; the SDK builds only Direct3D 12 on Windows by default), then build and install it with `tools\build_sdk.bat` from this
    repository. On Windows, the symlinks under `thirdparty/libmspack/cabextract/mspack/` must be real files before
    the first build (see SDK-VERSION.md).
 
@@ -67,6 +72,6 @@ it refuses to include any). The version comes from `tenchuz-recomp/src/version.h
 - `tenchuz-recomp/src/`: the game-specific code (hooks, F6 menu, online, mods, shader presets, setup paths).
 - `tenchuz-recomp/tenchuz_manifest.toml`: function boundaries and entry points for the recompiler.
 - `tenchuz-recomp/sdk_patches/`: changes to the ReXGlue SDK (shader overrides, System Link over IP, menu keys,
-  a recompiler fix, keyboard modifier keys).
+  a recompiler fix, keyboard modifier keys, Vulkan shader fixes, DirectInput off, HUD hiding).
 - `tools/`: build, release, setup and analysis scripts.
 - `docs/`: guides; `docs/development-notes.md` has older development notes.

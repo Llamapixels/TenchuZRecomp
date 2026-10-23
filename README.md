@@ -34,7 +34,7 @@ mods, cheats, a speedrun timer, a photo mode and System Link co-op over the inte
 Windows may warn that the files come from an unknown publisher (they aren't signed): choose **More info > Run
 anyway**. Windows Firewall may ask to allow `tenchuz.exe` the first time; allow it for online play.
 
-Needs Windows 10 or 11 (64-bit) and a graphics card with DirectX 12.
+Needs Windows 10 or 11 (64-bit) and a graphics card with DirectX 12 or Vulkan.
 
 ## What you need
 
@@ -52,17 +52,17 @@ so far.
 | ✅ | **Recompiler** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | The whole game recompiles to native x64 code (ReXGlue) |
 | ✅ | **Setup from your disc image** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | Version check and file extraction from your own `.iso`, no extra programs |
 | ✅ | **Graphics (Direct3D 12)** | ![90%](https://progress-bar.xyz/90/?width=150&style=square&progress_color=5cb85c) | Hub and missions render correctly on NVIDIA; other GPUs untested |
+| 🔧 | **Graphics (Vulkan, work in progress)** | ![80%](https://progress-bar.xyz/80/?width=150&style=square&progress_color=5cb85c) | Choose it in the launcher or F6 > Game; menus and missions render like Direct3D 12 on NVIDIA except one floor in mission 1 (purple or speckled), other GPUs untested. Falls back to Direct3D 12 if Vulkan cannot start |
 | ✅ | **Render scale** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | 1x to 7x internal resolution (3x = 3840x2160) |
 | ✅ | **Sound and music** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | Including mute when the window is in the background |
 | ✅ | **Controllers** | ![90%](https://progress-bar.xyz/90/?width=150&style=square&progress_color=5cb85c) | Any controller; button remapping, stick deadzones and rumble strength in F6 > Controller (remapping needs more testing) |
 | ✅ | **Keyboard and mouse** | ![95%](https://progress-bar.xyz/95/?width=150&style=square&progress_color=5cb85c) | Rebind every controller input in F6 > Controller by pressing the key or mouse button; mouse look |
 | ✅ | **System Link co-op over the internet** | ![85%](https://progress-bar.xyz/85/?width=150&style=square&progress_color=5cb85c) | Join codes, automatic router setup (UPnP), player names; tested with two copies on one PC, not yet between two PCs |
-| ✅ | **Shader presets** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | "Modern Look" (sharpening, bloom, ambient occlusion, haze, depth of field, puddles) and "Manga", with live sliders |
+| ✅ | **Shader presets** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | "Modern Look" (sharpening, bloom, ambient occlusion, haze, depth of field) and "Manga", with live sliders |
 | ✅ | **Mods** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | `mods\` folder for replacement files and custom shaders, without touching the game files |
 | ✅ | **Extras** | ![100%](https://progress-bar.xyz/100/?width=150&style=square&progress_color=5cb85c) | Cheats, damage multipliers, camera FOV and distance, photo mode, speedrun timer with splits, info overlay |
 | 🔧 | **Tested in game** | ![15%](https://progress-bar.xyz/15/?width=150&style=square&progress_color=d9534f) | The hub and the first missions; the rest is untested: [report what breaks](../../issues/new/choose) |
 | 🔧 | **Other graphics cards** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | AMD and Intel GPUs untested: reports welcome |
-| 🗺️ | **River water in Modern Look** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | The water shader improves puddles only; rivers look as on the Xbox |
 | 🗺️ | **Voice chat** | ![0%](https://progress-bar.xyz/0/?width=150&style=square&progress_color=d9534f) | Not planned: use Discord or similar |
 
 ✅ done · 🔧 in progress · 🗺️ roadmap
@@ -102,8 +102,11 @@ their own); **+** adds a second key for the same input. Mouse look is in F6 > Ca
 | F6 | Tenchu Z menu | F8 | God mode on/off |
 | F5 | Refill health | F9 | Pause / resume mouse look |
 | F10 | Photo mode (free camera) | F1 / F2 | Save / load position (practice) |
+| F11 | Hide / show the game's HUD | | |
 
-Keep the frame rate at 60 Hz with vsync on (the launcher's default): the game runs its clock off the frame rate.
+Keep the frame rate at 60 Hz with vsync on (the launcher's default): the game runs its clock off the frame rate, so
+the game shows 30 fps as on the Xbox 360. For 60 fps in missions, turn on **60 fps (experimental)** in the launcher or
+F6 > Game; menus stay at 30.
 
 ## Reporting bugs
 

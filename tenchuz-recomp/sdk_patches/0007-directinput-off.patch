@@ -1,0 +1,26 @@
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index c7c440d..630fbc1 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -22,6 +22,13 @@
+ 
+ REXCVAR_DEFINE_STRING(hid_mappings_file, "gamecontrollerdb.txt", "Input",
+                       "Path to SDL gamecontroller mappings file");
++// TENCHUZ: DirectInput is only needed for older generic USB pads (Xbox,
++// PlayStation and Switch controllers use other back-ends). Windows makes
++// DirectInput wait for any device that stops answering, which held up start-up
++// by 20-40 s, so it is off unless asked for.
++REXCVAR_DEFINE_BOOL(input_directinput, false, "Input",
++                    "Use DirectInput for older generic controllers (can slow "
++                    "start-up when a device misbehaves)");
+ 
+ namespace rex::input::sdl {
+ 
+@@ -89,6 +96,7 @@ void SDLInputDriver::OnWindowAvailable(rex::ui::Window* window) {
+           this);
+ 
+       // Initialize game controller subsystem
++      SDL_SetHint(SDL_HINT_JOYSTICK_DIRECTINPUT, REXCVAR_GET(input_directinput) ? "1" : "0");
+       if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+         REXLOG_ERROR("SDL: Failed to init gamecontroller subsystem: {}", SDL_GetError());
+         return;

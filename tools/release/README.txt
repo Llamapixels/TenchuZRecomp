@@ -36,8 +36,16 @@ PLAYING
   start the game.
 - Or start tenchuz.exe directly.
 - An Xbox controller is recommended. Keyboard and mouse also work.
+- Renderer: Direct3D 12 by default. Vulkan is a work in progress: if the
+  game runs slowly or does not start, pick Vulkan in the launcher (or F6 > Game > Renderer, then
+  restart). Shader presets need Direct3D 12.
 - Keep the frame rate at 60 Hz with vsync on: the game runs its clock off
-  the frame rate, so other values change the game speed.
+  the frame rate, so other values change the game speed. The game shows
+  30 fps, as on the Xbox 360.
+- 60 fps (experimental): tick "60 fps while playing" in the launcher (or
+  F6 > Game). Missions run at 60 fps; menus stay at 30.
+- Known issue with Vulkan on NVIDIA: one wooden floor in mission 1 looks
+  purple or speckled. Direct3D 12 (the default) draws it correctly.
 
 Keyboard defaults (change any key in F6 > Controller > Keyboard & mouse
 keys: press Set, then the key or mouse button you want):
@@ -54,6 +62,8 @@ Hotkeys in game:
   F8    God mode on/off           F5    Refill health
   F9    Pause / resume mouse look F10   Photo mode (free camera)
   F1/F2 Save / load position (practice)
+  F11   Hide / show the game's HUD (also hides subtitles and the pause menu
+        in missions while on)
 
 
 PLAYING TOGETHER (System Link over the internet)

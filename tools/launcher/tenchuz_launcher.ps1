@@ -124,7 +124,9 @@ $script:ManagedKeys = @(
     'mods_enabled',
     'skip_intro_movies',
     'mnk_mouse',
-    'dump_shaders'
+    'dump_shaders',
+    'gpu_backend',
+    'frame_rate_60'
 )
 
 # Tenchu Z always draws a 1280x720 frame, whatever video mode it is given:
@@ -359,6 +361,8 @@ Add-Type -AssemblyName WindowsBase
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Render scale:" Margin="0,2"/>
@@ -378,6 +382,15 @@ Add-Type -AssemblyName WindowsBase
         <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
                    TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#A0A0A0"
                    Text="The game always draws a 1280x720 frame; this multiplies the resolution it is rendered at. It is the only setting that makes the image sharper - the window size only stretches the result. If the GPU cannot handle a scale, the game lowers it automatically."/>
+
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Renderer:" Margin="0,10,0,2"/>
+        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="Renderer" Margin="0,8,0,0">
+          <ComboBoxItem Content="Direct3D 12 (default)"/>
+          <ComboBoxItem Content="Vulkan"/>
+        </ComboBox>
+        <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                   TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#A0A0A0"
+                   Text="Try Vulkan if the game runs slowly or does not start with Direct3D 12. If Vulkan cannot start, the game uses Direct3D 12. Shader presets need Direct3D 12."/>
       </Grid>
     </GroupBox>
 
@@ -405,8 +418,8 @@ Add-Type -AssemblyName WindowsBase
       </Grid>
     </GroupBox>
 
-    <!-- Frame rate -->
-    <GroupBox Grid.Row="2" Header="Frame rate">
+    <!-- Game speed (console refresh rate) -->
+    <GroupBox Grid.Row="2" Header="Game speed and frame rate">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="150"/>
@@ -418,9 +431,10 @@ Add-Type -AssemblyName WindowsBase
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Frame rate (Hz):" Margin="0,2"/>
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Console refresh (Hz):" Margin="0,2"/>
         <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Refresh"/>
 
         <CheckBox Grid.Row="1" Grid.Column="1" x:Name="VSync" Content="Vertical sync"/>
@@ -429,10 +443,13 @@ Add-Type -AssemblyName WindowsBase
 
         <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                    TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#A0A0A0"
-                   Text="Frame rate drives the emulated console's vblank, which is also the game's simulation clock. Tenchu Z runs its logic off vblank, so this value directly changes game speed: 30 is half speed, 60 is normal, 120 is double speed. Leave vertical sync on for normal speed - with it off the runtime uses a 1000 Hz timer and the game runs very fast."/>
+                   Text="Tenchu Z runs at 30 frames per second, as on the Xbox 360: it draws a new frame on every second refresh of the console. This setting is the console's refresh rate, which is also the game's clock, so it changes game SPEED, not smoothness: 60 Hz is normal speed (30 fps), 120 Hz is double speed. Keep 60 Hz and vertical sync on. The in-game counter (F6 > HUD > Frame rate) shows the real fps; the window is redrawn more often, but those redraws repeat the same frame."/>
 
         <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
                    x:Name="SpeedNote" Margin="0,6,0,0" FontWeight="Bold"/>
+
+        <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" x:Name="Fps60" Margin="0,8,0,0"
+                  Content="60 fps while playing (experimental; menus stay at 30)"/>
       </Grid>
     </GroupBox>
 
@@ -491,7 +508,7 @@ foreach ($name in @('RenderScale','EffectiveDraw',
                     'AllowTearing','SaveOnly','Launch','Status','PathInfo','SpeedNote',
                     'GodMode','FreeShop','ModsEnabled','OpenMods','ModCount',
                     'SkipIntro','MouseLook','ModList','ModUp','ModDown','ModRefresh',
-                    'DumpShaders')) {
+                    'DumpShaders','Renderer','Fps60')) {
     $ui[$name] = $window.FindName($name)
 }
 
@@ -524,6 +541,11 @@ function Load-CurrentConfig {
     }
     $idx = [array]::IndexOf($script:RenderScales, [math]::Min([math]::Max($scale, 1), 7))
     $ui.RenderScale.SelectedIndex = [math]::Max($idx, 0)
+
+    $ui.Fps60.IsChecked = ($vals['frame_rate_60'] -eq 'true')
+
+    # Renderer
+    $ui.Renderer.SelectedIndex = $(if ($vals['gpu_backend'] -match 'vulkan') { 1 } else { 0 })
 
     # Window
     if ($vals.ContainsKey('window_width'))  { $ui.WinW.Text = ($vals['window_width']  -replace '[^0-9]','') }
@@ -597,7 +619,8 @@ function Update-SpeedNote {
     } else {
         $ui.SpeedNote.Foreground = '#DCDCAA'
     }
-    $ui.SpeedNote.Text = "$hz Hz = $desc   (60 Hz is the console's normal rate)"
+    $fps = [math]::Round($hz / 2)
+    $ui.SpeedNote.Text = "$hz Hz = $desc, $fps fps   (60 Hz = normal speed, 30 fps, as on the Xbox 360)"
 }
 
 function Build-Values {
@@ -625,6 +648,8 @@ function Build-Values {
         mnk_mouse                 = [bool]$ui.MouseLook.IsChecked
         # A path turns dumping on; $null removes the key (runtime default: off).
         dump_shaders              = $(if ($ui.DumpShaders.IsChecked) { Join-Path $script:ExeDir 'shader_dump' } else { $null })
+        gpu_backend               = $(if ($ui.Renderer.SelectedIndex -eq 1) { 'vulkan' } else { 'd3d12' })
+        frame_rate_60             = [bool]$ui.Fps60.IsChecked
     }
 
     # Only pin an explicit window size when the user asked for one. Leaving

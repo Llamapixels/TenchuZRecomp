@@ -342,7 +342,13 @@ class TenchuzApp : public rex::ReXApp {
   // or the second copy on one PC) sent its System Link updates in bursts
   // and enemies stuttered for the other players. Ask for a 1 ms timer and
   // opt out of the throttling.
+  //
+  // Windows also gives the window in front a scheduling boost. In a busy
+  // mission on a PC with few cores, losing it when the window is in the
+  // background was enough to miss frames, so the process runs one step above
+  // normal priority to keep its place.
   static void KeepFullSpeedInBackground() {
+    SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
     timeBeginPeriod(1);
 #ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
 #define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
@@ -376,6 +382,10 @@ class TenchuzApp : public rex::ReXApp {
     // background so start-up does not wait for the router.
     if (tenchuz::upnp::enabled()) {
       tenchuz::upnp::Start();
+    }
+    // Apply a saved "hide the game's HUD" (the GPU plugin is loaded by now).
+    if (tenchuz::gameplay::hide_game_hud()) {
+      tenchuz::gameplay::set_hide_game_hud(true);
     }
   }
 
@@ -448,8 +458,12 @@ class TenchuzApp : public rex::ReXApp {
     rex::ui::RegisterBind("bind_photo_mode", "F10", "Photo mode", [] {
       tenchuz::photo_mode::Toggle();
     });
+    rex::ui::RegisterBind("bind_hide_hud", "F11", "Hide game HUD", [] {
+      tenchuz::gameplay::set_hide_game_hud(!tenchuz::gameplay::hide_game_hud());
+    });
     REXLOG_INFO("Tenchu Z menu: F6 menu, F8 god mode, F5 refill health, "
-                "F9 mouse look, F1/F2 save/load position, F10 photo mode");
+                "F9 mouse look, F1/F2 save/load position, F10 photo mode, "
+                "F11 hide HUD");
   }
 
   // Select the GPU emulation plugin by default. The SDK reads the
@@ -459,7 +473,37 @@ class TenchuzApp : public rex::ReXApp {
     if (config.gpu_plugin.empty()) {
       config.gpu_plugin = "xenos";
     }
+    LoadRenderer(config);
     SetUpShaderOverrides(config);
+  }
+
+  // Load the GPU plugin with the renderer chosen in F6 > Game (gpu_backend).
+  // Vulkan's presentation is set up here, so that a PC where Vulkan does not
+  // work (no driver, too old a GPU) starts with Direct3D 12 instead of
+  // failing. ReXApp skips the setup it would do itself once it has been done.
+  void LoadRenderer(rex::RuntimeConfig& config) {
+    const std::string requested = tenchuz::ui_settings::renderer();
+    if (requested == "vulkan") {
+      // Vulkan prefers present modes that tear; follow the launcher's
+      // "Allow tearing" (the Direct3D 12 setting) instead.
+      const std::string tearing =
+          rex::cvar::Query<bool>("d3d12_allow_variable_refresh_rate_and_tearing")
+              ? "true"
+              : "false";
+      rex::cvar::SetFlagByName("vulkan_allow_present_mode_immediate", tearing);
+      rex::cvar::SetFlagByName("vulkan_allow_present_mode_fifo_relaxed", tearing);
+      auto graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, "vulkan");
+      if (graphics && !XFAILED(graphics->SetupPresentation(&app_context()))) {
+        config.graphics = std::move(graphics);
+        tenchuz::ui_settings::set_active_renderer(requested, "vulkan");
+        REXLOG_INFO("Renderer: Vulkan");
+        return;
+      }
+      REXLOG_ERROR("Renderer: Vulkan could not start, using Direct3D 12");
+    }
+    config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin, "d3d12");
+    tenchuz::ui_settings::set_active_renderer(requested, "d3d12");
+    REXLOG_INFO("Renderer: Direct3D 12");
   }
 
   // Shader overrides (runtime: src/graphics/d3d12/shader_override.h): HLSL
@@ -468,9 +512,8 @@ class TenchuzApp : public rex::ReXApp {
   // folder (mods first, in the same priority order as their files).
   //
   // The runtime's settings for this live in the GPU plugin, which registers
-  // them when it loads - normally right after this hook. So when overrides
-  // exist, the plugin is loaded here instead, and the settings applied:
-  // the override folders, and bindful resource binding, which overrides need.
+  // them when it loads (LoadRenderer, just before this), so the override
+  // folders can be applied here.
   void SetUpShaderOverrides(rex::RuntimeConfig& config) {
     if (!rex::cvar::Query<bool>("shader_overrides_enabled")) {
       tenchuz::shader_settings::Init(exe_dir_, {});
@@ -520,12 +563,13 @@ class TenchuzApp : public rex::ReXApp {
         dirs.push_back(dir);
       }
     }
-    if (dirs.empty()) {
-      return;
+    if (dirs.empty() || !config.graphics) {
+      return;  // without a plugin, ReXApp reports the failure when it retries
     }
-    config.graphics = rex::system::LoadGpuPlugin(config.gpu_plugin);
-    if (!config.graphics) {
-      return;  // ReXApp reports the failure when it retries
+    // Overrides are HLSL, so they only work with Direct3D 12.
+    if (tenchuz::ui_settings::active_renderer() != "d3d12") {
+      REXLOG_INFO("shader overrides: off (they need Direct3D 12)");
+      return;
     }
     std::string list;
     for (const auto& dir : dirs) {

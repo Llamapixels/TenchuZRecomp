@@ -56,6 +56,11 @@ CONTROLLER  (F6 > Controller)
          trigger. Saved as button_map in tenchuz.toml.
   [test] Left / right stick deadzones (game default 24% / 27%).
   [test] Rumble strength 0% (off) - 200%.
+  [ok]   Fixed (2026-10-22): start-up could sit on a black screen for 20-40 s
+         when some device stopped answering DirectInput. DirectInput is now
+         off (Xbox, PlayStation and Switch controllers do not need it);
+         F6 > Controller > Older USB controllers turns it back on
+         (input_directinput, next start). SDK patch 7.
   [ok]   Keyboard & mouse keys (2026-10-22): every controller input can be
          bound to keys or mouse buttons in F6 > Controller. Set takes the
          next key or mouse button pressed (with Shift/Ctrl/Alt held, or a
@@ -82,7 +87,18 @@ SPEEDRUN  (F6 > Speedrun)
 
 ON-SCREEN PANEL  (F6 > HUD)
 ---------------------------
-  [ok]   Frame rate: game frames and display frames.
+  [ok]   Hide the game's HUD (2026-10-22): F11 or F6 > HUD, saved as
+         hide_game_hud. In a mission the GPU plugin skips every draw after
+         the game's final screen pass (822F99ECDB1B0ACD) until the frame is
+         shown, so subtitles, banners and the pause menu are hidden too while
+         it is on; title and hub menus are unaffected. SDK patch 8. (Skipping
+         the HUD's own task, CCockpit sub_82394AF0, only froze it: the
+         sprites are drawn elsewhere.)
+  [ok]   Frame rate (relabelled 2026-10-22): "FPS" is the game's real
+         frame rate (30, as on the Xbox 360; 60 with the 60 fps option).
+         "Window redraws" is how often the window is repainted (follows
+         the monitor and repeats the same game frame), so a 144 Hz monitor
+         does not mean the game is failing to reach 144.
   [test] Health, enemies (alive / nearest / last hit), speedrun timer,
          position.
   [ok]   Any corner of the screen.
@@ -92,6 +108,40 @@ VIDEO  (F6 > Shader, launcher)
 ------------------------------
   [ok]   Render scale 1x - 7x (the game always draws 1280x720; scale is
          the real internal resolution, e.g. 3x = 3840x2160).
+  [test] Renderer (2026-10-22): Direct3D 12 (default) or Vulkan (work in
+         progress), in the launcher or F6 > Game > Renderer (restart to
+         switch); gpu_backend in tenchuz.toml. If Vulkan cannot start (no driver, old GPU) the
+         game falls back to Direct3D 12 and says so in F6 > Game. Vulkan
+         follows "Allow tearing" (no tearing by default). Shader presets
+         need Direct3D 12. Checked on NVIDIA (menus and mission 51); other
+         GPUs untested.
+  [test] Fixed: with Vulkan, characters were noisy pixels on NVIDIA (the
+         alpha test ignored use_fuzzy_alpha_epsilon), and roofs, wooden
+         beams, carts and trees were missing or see-through (textures with
+         a LOD bias were scaled to near black). SDK patch 6. Checked in
+         mission 51 against Direct3D 12.
+  [exp]  60 fps (2026-10-22): F6 > Game > 60 fps (experimental), or the
+         launcher's "60 fps while playing"; frame_rate_60 in tenchuz.toml,
+         applies at once. The game normally shows a new frame every second
+         vertical blank (30 fps); while your character is in the world it
+         now shows one every blank. Menus stay at 30 (they ran too fast at
+         60). Game speed stays normal because the clock is still the 60 Hz
+         refresh. Measured 55-60 fps in missions on Direct3D 12, about 54 on
+         Vulkan. Not yet checked: cutscenes, the pause menu.
+  [bug]  Vulkan, NVIDIA (2026-10-22): the wooden walkway under the eaves
+         in mission 1 is speckled red/green or flat purple (floor shader
+         ACFA07437578EA9C). Direct3D 12, the default, draws it correctly.
+         All its inputs (textures, vertex data, constants, texture slots)
+         were checked and are correct; the wrong result changes when
+         unrelated code is added to the shader, so it looks like undefined
+         behaviour in the NVIDIA Vulkan shader compiler. Direct3D 12's
+         bindful mode showed the same purple. Parked.
+  [test] Vulkan: the Xbox 360 rule "0 or a denormal times anything is 0"
+         now also treats denormals as zero on GPUs that keep them (NVIDIA
+         on Vulkan cannot flush them). SDK patch 9. Did not fix the floor.
+  [test] Background speed (2026-10-22): the game runs at above-normal
+         priority so it keeps its frame rate in missions while its window
+         is in the background (Windows boosts only the window in front).
   [gone] F6 > Video tab removed (2026-10-21): its live overrides of the
          game's own post-processing (exposure, bloom, HDR, blur, tone
          mapping, depth of field) are replaced by the shader presets. The
@@ -123,9 +173,10 @@ VIDEO  (F6 > Shader, launcher)
   [ok]   The game passes the camera (eye, direction, field of view) and a
          clock to every shader (XeUser(48..61)), so shaders can rebuild
          world positions. Verified with a world grid on the hub puddle.
-  [ok]   Modern Look puddle water, puddles only (79481E88F9E67594): world-anchored
-         animated ripples, ripple distortion, fresnel reflection, glints
-         and depth tint, with 7 sliders.
+  [gone] Modern Look puddle water (79481E88F9E67594) removed 2026-10-22: it
+         only affected puddles, so puddles are back to the game's own
+         shader and its 7 sliders are gone. The depth effect sliders moved
+         from XeUser(22..30) to XeUser(15..23).
   [ok]   Modern Look depth effects: ambient occlusion, atmospheric haze
          with tint, depth of field focused on the player, and light shafts
          from bright distant areas (they always come from above the screen;
@@ -134,10 +185,9 @@ VIDEO  (F6 > Shader, launcher)
          player (the game passes the player's screen position and distance,
          XeUser(40..43)). Fixed 2026-10-21: haze only reached ~10 ft and
          DOF/shafts did nothing, because depth was read as plain distance.
-  [todo] River water: its shader is not identified yet (none of the 42
-         known pixel shaders could be singled out by colour tests; the
-         river is probably drawn additively). Next step if wanted: an
-         in-game shader picker. Skipped for now.
+  [todo] Water effects (rivers and puddles): left as the game draws
+         them. River water's shader is not identified yet (probably drawn
+         additively); an in-game shader picker would be the next step.
   [ok]   Fixed: with shader overrides active, some textures came out as a
          flat colour (mission 1: purple wooden walkway, magenta HUD orb).
          Cause: overrides switched the renderer to its bindful resource
@@ -235,6 +285,10 @@ MODS
 LAUNCHER  (tools\launcher\Tenchu Z Launcher.cmd)
 ------------------------------------------------
   [ok]   Render scale, window size / fullscreen, frame rate + vsync.
+  [test] "Game speed and frame rate" (2026-10-22): the refresh setting is
+         labelled "Console refresh (Hz)" with a note that it is the game's
+         clock (60 Hz = normal speed, 30 fps), so nobody expects 144 Hz to
+         give 144 fps. Checkbox for the 60 fps option.
   [ok]   God mode, free shopping, skip intros, mouse look, mods on/off.
   [ok]   Dump shaders for shader modding (writes shader_dump\ with an
          override stub and interface file for every pixel shader).
@@ -289,7 +343,6 @@ SETTINGS
 
 PLANNED / NOT YET DONE
 ----------------------
-  - Hide HUD for screenshots (needs the HUD draw call).
   - First-person camera mode.
   - Texture converter for .xpr (modding tools) - separate task.
   - Unlock everything / save editor.

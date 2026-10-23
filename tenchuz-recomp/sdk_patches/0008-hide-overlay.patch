@@ -1,0 +1,84 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index a744375..2c5320f 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cinttypes>
+ #include <cmath>
+ #include <cstring>
+@@ -82,6 +83,16 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
+ 
+ namespace rex::graphics {
+ 
++// TENCHUZ: hiding the game's 2D overlay (HUD, subtitles, menus drawn on top of
++// the finished frame). When non-zero, every ordinary draw after a draw with this
++// pixel shader is skipped until the frame is swapped; copies out of EDRAM still
++// run so the frame reaches the screen. Set from the game through the plugin
++// export rex_hide_draws_after_shader.
++std::atomic<uint64_t> g_hide_draws_after_shader{0};
++namespace {
++bool hide_draws_active = false;
++}  // namespace
++
+ using namespace rex::graphics::xenos;
+ 
+ namespace {
+@@ -958,6 +969,7 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   uint32_t frontbuffer_height = reader->ReadAndSwap<uint32_t>();
+   reader->AdvanceRead((count - 4) * sizeof(uint32_t));
+ 
++  hide_draws_active = false;  // TENCHUZ
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
+   ++counter_;
+@@ -1378,8 +1390,20 @@ bool CommandProcessor::ExecutePacketType3Draw(memory::RingBuffer* reader, uint32
+ 
+       bool major_mode_explicit =
+           xenos::IsMajorModeExplicit(vgt_draw_initiator.major_mode, vgt_draw_initiator.prim_type);
+-      draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
+-                                 is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
++      // TENCHUZ: overlay hiding (see g_hide_draws_after_shader).
++      const uint64_t hide_after = g_hide_draws_after_shader.load(std::memory_order_relaxed);
++      const bool is_copy = register_file_->Get<reg::RB_MODECONTROL>().edram_mode ==
++                           xenos::EdramMode::kCopy;
++      if (hide_after && hide_draws_active && !is_copy) {
++        draw_succeeded = true;
++      } else {
++        draw_succeeded = IssueDraw(vgt_draw_initiator.prim_type, vgt_draw_initiator.num_indices,
++                                   is_indexed ? &index_buffer_info : nullptr, major_mode_explicit);
++        if (hide_after && !is_copy && active_pixel_shader_ &&
++            active_pixel_shader_->ucode_data_hash() == hide_after) {
++          hide_draws_active = true;
++        }
++      }
+       if (!draw_succeeded) {
+         auto vgt_output_path_cntl = register_file_->Get<reg::VGT_OUTPUT_PATH_CNTL>();
+         auto vgt_hos_cntl = register_file_->Get<reg::VGT_HOS_CNTL>();
+diff --git a/src/graphics/plugin_main.cpp b/src/graphics/plugin_main.cpp
+--- a/src/graphics/plugin_main.cpp
++++ b/src/graphics/plugin_main.cpp
+@@ -9,6 +9,7 @@
+  *              See LICENSE file in the project root for full license text.
+  */
+ 
++#include <atomic>
+ #include <string_view>
+ 
+ #include <rex/logging.h>
+@@ -61,3 +62,12 @@
+   rex::graphics::d3d12::SetShaderOverrideUserValues(values, count);
+ #endif
+ }
++
++// TENCHUZ: skip ordinary draws after the first draw with this pixel shader in
++// each frame (0 = off). Used to hide the game's HUD.
++namespace rex::graphics {
++extern std::atomic<uint64_t> g_hide_draws_after_shader;
++}
++extern "C" REX_GPU_PLUGIN_EXPORT void rex_hide_draws_after_shader(uint64_t pixel_shader_hash) {
++  rex::graphics::g_hide_draws_after_shader.store(pixel_shader_hash, std::memory_order_relaxed);
++}

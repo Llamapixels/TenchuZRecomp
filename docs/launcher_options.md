@@ -169,7 +169,15 @@ with a smaller guest mode, set both explicitly.
 |---|---|---|---|
 | `video_mode_refresh_rate` | double 24–240 | 60.0 | Guest video-mode refresh rate in Hz. **Also the game's simulation rate.** |
 | `vsync` | bool | true | Selects guest vblank source (see below), and host vertical sync. |
-| `d3d12_allow_variable_refresh_rate_and_tearing` | bool | true | Allow VRR / tearing present. |
+| `d3d12_allow_variable_refresh_rate_and_tearing` | bool | true | Allow VRR / tearing present. With Vulkan it allows the tearing present modes (immediate, FIFO relaxed). |
+| `frame_rate_60` | bool | false | Experimental 60 fps while the player character is in the world (menus stay at 30). Launcher: "60 fps while playing"; in game: F6 > Game. Applies at once. See below. |
+
+## Renderer
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `gpu_backend` | string | `"d3d12"` | `"d3d12"` or `"vulkan"`. Launcher: Renderer; in game: F6 > Game > Renderer (restart to switch). If Vulkan cannot start, the game uses Direct3D 12 for that run. Shader presets need Direct3D 12. |
+| `vulkan_device` | int | -1 | Vulkan GPU index (-1 picks automatically); the log lists the GPUs. |
 
 ### Frame rate changes game speed — this is expected
 
@@ -211,12 +219,18 @@ control, just not in the way "uncap the framerate" usually implies.
 ### What this means in practice
 
 - **Normal gameplay:** `video_mode_refresh_rate = 60.0`, `vsync = true`.
+- **The game shows 30 fps**, as on the Xbox 360: it presents a new frame every
+  second vblank (the D3D presentation interval is 2). The in-game readout
+  (F6 > HUD) shows this as "FPS"; "window redraws" is the host repainting the
+  window at the monitor's rate, repeating the same frame.
+- **60 fps at normal speed:** `frame_rate_60 = true` (experimental) lowers the
+  presentation interval to 1 for each frame while the player character exists,
+  so missions show a frame every vblank. The clock stays the 60 Hz vblank, so
+  game speed is unchanged. Menus keep 30 fps because they ran too fast at 60.
+  Hook: `sub_8241BDE0` (builds the swap's vblank wait from `device+13248`).
 - **Smoothness above 60 Hz:** possible only if you accept faster game speed
-  (e.g. 120 Hz = 2x speed), or if a future SDK/runtime change decouples the
-  guest vblank rate from game logic.
-- **True high-refresh presentation at normal speed** would require either a
-  runtime that separates vblank from simulation, or a guest-side patch to
-  Tenchu Z's frame pacing. Neither is available today.
+  (e.g. 120 Hz = 2x speed), or if a future change decouples the guest vblank
+  rate from game logic.
 
 Both `video_mode_refresh_rate` and `vsync` require a restart.
 

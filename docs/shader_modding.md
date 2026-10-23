@@ -96,9 +96,7 @@ projected position):
 float3 world = eye + d * (forward + x * right + y * up);
 ```
 
-The world uses +Y up, in roughly centimetre units. The Modern Look puddle
-shader (`79481E88F9E67594.ps.hlsl`) is a working example; its ripples stay
-fixed on the ground.
+The world uses +Y up, in roughly centimetre units.
 
 ### Included presets
 
@@ -114,12 +112,8 @@ field and bloom, keep all of that, and have a split-screen compare checkbox
   effects: ambient occlusion, atmospheric haze, depth of field and light
   shafts. The final pass's `tf3` holds about k / view depth (large up close);
   the shader measures k each frame at the player, whose distance the game
-  passes in (`XeUser(40..43)`). It also replaces
-  the puddle water shader (`79481E88F9E67594`): animated ripples fixed in
-  the world, ripple distortion of the reflection, stronger reflection at
-  shallow angles, sharp glints and a depth tint, each with a slider. Rivers
-  use the game's ordinary surface shaders (their ripples are an animated
-  texture), so they are not affected.
+  passes in (`XeUser(40..43)`). Water (puddles and rivers) is left as the
+  game draws it.
 - **Manga**: ink outlines (edge detection), flat tone bands, halftone
   screentone dots and paper colour. The **Colour** slider goes from black and
   white manga (0) to a colour comic (1).

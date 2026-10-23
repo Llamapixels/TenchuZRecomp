@@ -91,16 +91,15 @@ Settings LoadSettings() {
     s.lift = XeUser(12);
     s.vignette = XeUser(13);
     s.compare = XeUser(14) != 0.0;
-    // 15-21 are the puddle water sliders (79481E88F9E67594.ps.hlsl).
-    s.ao = XeUser(22);
-    s.ao_radius = max(XeUser(23), 1.0);
-    s.fog = XeUser(24);
-    s.fog_distance = max(XeUser(25), 1.0);
-    s.fog_tint = XeUser(26);
-    s.dof = XeUser(27);
-    s.dof_distance = max(XeUser(28), 1.0);
-    s.shafts = XeUser(29);
-    s.shafts_length = XeUser(30);
+    s.ao = XeUser(15);
+    s.ao_radius = max(XeUser(16), 1.0);
+    s.fog = XeUser(17);
+    s.fog_distance = max(XeUser(18), 1.0);
+    s.fog_tint = XeUser(19);
+    s.dof = XeUser(20);
+    s.dof_distance = max(XeUser(21), 1.0);
+    s.shafts = XeUser(22);
+    s.shafts_length = XeUser(23);
   } else {
     s.sharpen = DEFAULT_SHARPEN;
     s.clarity = DEFAULT_CLARITY;
