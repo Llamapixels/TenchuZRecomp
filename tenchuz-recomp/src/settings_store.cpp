@@ -1,6 +1,7 @@
 // tenchuz - saving in-game settings back to tenchuz.toml
 
 #include "settings_store.h"
+#include "display_settings.h"
 
 #include <cctype>
 #include <fstream>
@@ -67,6 +68,10 @@ bool IsComment(std::string_view line) {
 
 bool SaveSettings(const std::filesystem::path& config_path,
                   const std::vector<std::string>& cvar_names) {
+  if (display_settings::safe_launch()) {
+    REXLOG_INFO("Safe launch: settings are temporary and will not be saved");
+    return false;
+  }
   std::unordered_map<std::string, std::string> pending;
   std::vector<std::string> order;
   for (const std::string& name : cvar_names) {

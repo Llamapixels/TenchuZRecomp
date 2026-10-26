@@ -1,0 +1,166 @@
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -130,6 +130,14 @@
+   bool Restore(::rex::stream::ByteStream* stream);
+ 
+  protected:
++  // Consumer overlay layout, applied only after the declared final scene pass.
++  void TransformOverlayNdc(float* scale, float* offset, const uint32_t* viewport_offset,
++                           const uint32_t* viewport_extent, uint32_t draw_scale_x,
++                           uint32_t draw_scale_y, bool bottom_left) const;
++  void TransformOverlayScissor(uint32_t* offset, uint32_t* extent,
++                               uint32_t draw_scale_x, uint32_t draw_scale_y) const;
++  bool overlay_phase_ = false;
++
+   struct IndexBufferInfo {
+     xenos::IndexFormat format = xenos::IndexFormat::kInt16;
+     xenos::Endian endianness = xenos::Endian::kNone;
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -89,11 +89,62 @@
+ // run so the frame reaches the screen. Set from the game through the plugin
+ // export rex_hide_draws_after_shader.
+ std::atomic<uint64_t> g_hide_draws_after_shader{0};
++std::atomic<uint64_t> g_overlay_after_shader{0};
++std::atomic<float> g_overlay_scale_x{1.0f}, g_overlay_scale_y{1.0f};
++std::atomic<float> g_overlay_offset_x{0.0f}, g_overlay_offset_y{0.0f};
++std::atomic<float> g_overlay_frame_width{1280.0f}, g_overlay_frame_height{720.0f};
+ namespace {
+ bool hide_draws_active = false;
+ }  // namespace
+ 
+ using namespace rex::graphics::xenos;
++
++void CommandProcessor::TransformOverlayNdc(float* scale, float* offset,
++    const uint32_t* viewport_offset, const uint32_t* viewport_extent,
++    uint32_t draw_scale_x, uint32_t draw_scale_y, bool bottom_left) const {
++  if (!overlay_phase_ || !g_overlay_after_shader.load(std::memory_order_relaxed)) return;
++  const float sx = g_overlay_scale_x.load(std::memory_order_relaxed);
++  const float sy = g_overlay_scale_y.load(std::memory_order_relaxed);
++  const float sizes[] = {g_overlay_frame_width.load(std::memory_order_relaxed) * draw_scale_x,
++                          g_overlay_frame_height.load(std::memory_order_relaxed) * draw_scale_y};
++  const float factors[] = {sx, sy};
++  const float shifts[] = {g_overlay_offset_x.load(std::memory_order_relaxed),
++                           g_overlay_offset_y.load(std::memory_order_relaxed)};
++  for (uint32_t axis = 0; axis < 2; ++axis) {
++    if (!viewport_extent[axis]) continue;
++    const float factor = factors[axis];
++    const float sign = axis == 1 && bottom_left ? -1.0f : 1.0f;
++    // Unnormalized UI can use a huge synthetic host viewport. Transform about
++    // the visible frame's center, not the synthetic viewport's center.
++    const float correction = (1.0f - factor) *
++        ((sizes[axis] - 2.0f * viewport_offset[axis]) / viewport_extent[axis] - 1.0f) +
++        2.0f * shifts[axis] * sizes[axis] / viewport_extent[axis];
++    scale[axis] *= factor;
++    offset[axis] = offset[axis] * factor + sign * correction;
++  }
++}
++
++void CommandProcessor::TransformOverlayScissor(uint32_t* offset, uint32_t* extent,
++    uint32_t draw_scale_x, uint32_t draw_scale_y) const {
++  if (!overlay_phase_ || !g_overlay_after_shader.load(std::memory_order_relaxed)) return;
++  const float scales[] = {g_overlay_scale_x.load(std::memory_order_relaxed),
++                           g_overlay_scale_y.load(std::memory_order_relaxed)};
++  const float shifts[] = {g_overlay_offset_x.load(std::memory_order_relaxed),
++                           g_overlay_offset_y.load(std::memory_order_relaxed)};
++  const double sizes[] = {double(g_overlay_frame_width.load(std::memory_order_relaxed)) * draw_scale_x,
++                           double(g_overlay_frame_height.load(std::memory_order_relaxed)) * draw_scale_y};
++  for (uint32_t axis = 0; axis < 2; ++axis) {
++    const double center = 0.5 * sizes[axis];
++    const double shift = double(shifts[axis]) * sizes[axis];
++    const double lo = center + (double(offset[axis]) - center) * scales[axis] + shift;
++    const double hi = lo + double(extent[axis]) * scales[axis];
++    const double bound = sizes[axis];
++    const auto clipped_lo = uint32_t(std::clamp(std::floor(lo), 0.0, bound));
++    const auto clipped_hi = uint32_t(std::clamp(std::ceil(hi), double(clipped_lo), bound));
++    offset[axis] = clipped_lo;
++    extent[axis] = clipped_hi - clipped_lo;
++  }
++}
+ 
+ namespace {
+ 
+@@ -970,6 +1021,7 @@
+   reader->AdvanceRead((count - 4) * sizeof(uint32_t));
+ 
+   hide_draws_active = false;  // TENCHUZ
++  overlay_phase_ = false;
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
+   ++counter_;
+@@ -1403,6 +1455,9 @@
+             active_pixel_shader_->ucode_data_hash() == hide_after) {
+           hide_draws_active = true;
+         }
++        const uint64_t overlay_after = g_overlay_after_shader.load(std::memory_order_relaxed);
++        if (draw_succeeded && overlay_after && !is_copy && active_pixel_shader_ &&
++            active_pixel_shader_->ucode_data_hash() == overlay_after) overlay_phase_ = true;
+       }
+       if (!draw_succeeded) {
+         auto vgt_output_path_cntl = register_file_->Get<reg::VGT_OUTPUT_PATH_CNTL>();
+--- a/src/graphics/plugin_main.cpp
++++ b/src/graphics/plugin_main.cpp
+@@ -71,3 +71,23 @@
+ extern "C" REX_GPU_PLUGIN_EXPORT void rex_hide_draws_after_shader(uint64_t pixel_shader_hash) {
+   rex::graphics::g_hide_draws_after_shader.store(pixel_shader_hash, std::memory_order_relaxed);
+ }
++
++namespace rex::graphics {
++extern std::atomic<uint64_t> g_overlay_after_shader;
++extern std::atomic<float> g_overlay_scale_x, g_overlay_scale_y;
++extern std::atomic<float> g_overlay_offset_x, g_overlay_offset_y;
++extern std::atomic<float> g_overlay_frame_width, g_overlay_frame_height;
++}
++// All inputs are supplied by the consumer's validated display settings.
++extern "C" REX_GPU_PLUGIN_EXPORT void rex_set_overlay_layout(uint64_t after_shader,
++    float frame_width, float frame_height, float scale_x, float scale_y,
++    float offset_x, float offset_y) {
++  using namespace rex::graphics;
++  g_overlay_scale_x.store(scale_x, std::memory_order_relaxed);
++  g_overlay_scale_y.store(scale_y, std::memory_order_relaxed);
++  g_overlay_offset_x.store(offset_x, std::memory_order_relaxed);
++  g_overlay_offset_y.store(offset_y, std::memory_order_relaxed);
++  g_overlay_frame_width.store(frame_width, std::memory_order_relaxed);
++  g_overlay_frame_height.store(frame_height, std::memory_order_relaxed);
++  g_overlay_after_shader.store(after_shader, std::memory_order_relaxed);
++}
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -2454,11 +2454,16 @@
+   }
+ 
+   draw_util::Scissor scissor;
++  TransformOverlayNdc(viewport_info.ndc_scale, viewport_info.ndc_offset,
++      viewport_info.xy_offset, viewport_info.xy_extent, draw_resolution_scale_x,
++      draw_resolution_scale_y, true);
+   draw_util::GetScissor(regs, scissor);
+   scissor.offset[0] *= draw_resolution_scale_x;
+   scissor.offset[1] *= draw_resolution_scale_y;
+   scissor.extent[0] *= draw_resolution_scale_x;
+   scissor.extent[1] *= draw_resolution_scale_y;
++  TransformOverlayScissor(scissor.offset, scissor.extent,
++                           draw_resolution_scale_x, draw_resolution_scale_y);
+ 
+   // Update viewport, scissor, blend factor and stencil reference.
+   UpdateFixedFunctionState(viewport_info, scissor, primitive_polygonal, normalized_depth_control);
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -3932,6 +3932,9 @@
+       host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
+       host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
+ 
++  TransformOverlayNdc(viewport_info.ndc_scale, viewport_info.ndc_offset,
++      viewport_info.xy_offset, viewport_info.xy_extent, draw_resolution_scale_x,
++      draw_resolution_scale_y, false);
+   // Update dynamic graphics pipeline state.
+   UpdateDynamicState(viewport_info, primitive_polygonal, normalized_depth_control);
+ 
+@@ -5696,6 +5699,8 @@
+   scissor.offset[1] *= draw_resolution_scale_y;
+   scissor.extent[0] *= draw_resolution_scale_x;
+   scissor.extent[1] *= draw_resolution_scale_y;
++  TransformOverlayScissor(scissor.offset, scissor.extent,
++                           draw_resolution_scale_x, draw_resolution_scale_y);
+   VkRect2D scissor_rect;
+   scissor_rect.offset.x = int32_t(scissor.offset[0]);
+   scissor_rect.offset.y = int32_t(scissor.offset[1]);

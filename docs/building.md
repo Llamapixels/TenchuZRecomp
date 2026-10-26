@@ -35,6 +35,9 @@ git; never share it).
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0007-directinput-off.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0008-hide-overlay.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0009-vulkan-denormals.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0010-overlay-layout.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0011-explicit-video-mode.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0012-mouse-sensitivity.patch
    ```
    (adjust the path to where you cloned this repository).
 3. Configure once with the SDK's `win-amd64` preset and Vulkan turned on

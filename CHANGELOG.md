@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.4-alpha
+
+- Mouse sensitivity now supports 0.01–100x in F6 > Camera and the launcher.
+  High-sensitivity deltas saturate safely instead of overflowing.
+- Launcher output-resolution presets include 1920x1080. The 1080p preset uses
+  2x internal rendering (2560x1440) downsampled to the selected output size.
+- Download includes the built-in shader presets, with no user-installed mods.
+
+- F6 Display tab, shared graphics profiles, menu scaling, resizable launcher,
+  named monitor selection, windowed/borderless modes and temporary Safe launch.
+- Experimental ultrawide camera correction with original HUD proportions,
+  group HUD size/position controls, and original framing for titles, movies
+  and scripted camera classes. Explicit native video dimensions now remain
+  independent of the host window even when equal to the SDK defaults.
+- Existing framerate controls and the 60 fps patch are unchanged.
+- Vulkan's mission-1 walkway corruption is still unresolved; a clean D3D12
+  comparison must not be mistaken for a Vulkan fix.
+
 ## 0.1.3-alpha
 
 - **Single-player levels in multiplayer**: the System Link host can pick any of the 14 single-player missions in

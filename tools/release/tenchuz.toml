@@ -25,6 +25,18 @@ skip_intro_movies = true
 # (controllers work at the same time). Keys can be changed with the
 # keybind_* settings, e.g. keybind_a = "Space"; the full list is in README.txt.
 mnk_mode = true
+mnk_sensitivity = 1.0
+
+# Display, camera and built-in shader defaults (F6 > Display / Camera / Shader).
+gpu_backend = "d3d12"
+widescreen = false
+widescreen_hud_correct = true
+menu_ui_scale = 1.0
+game_hud_scale = 1.0
+game_hud_offset_x = 0.0
+game_hud_offset_y = 0.0
+shader_preset = "Modern Look"
+safe_launch = false
 
 # Performance (the same choices Xenia players use for this game):
 # readback_memexport = false stops the CPU waiting for the GPU after shader

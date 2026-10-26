@@ -1,0 +1,20 @@
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -41,7 +41,7 @@
+ 
+ uint32_t GetConfiguredVideoModeWidth() {
+   int32_t configured_width = REXCVAR_GET(video_mode_width);
+-  if (!rex::cvar::HasNonDefaultValue("video_mode_width")) {
++  if (rex::cvar::GetFlagSource("video_mode_width") == rex::cvar::Source::kDefault) {
+     if (rex::cvar::HasNonDefaultValue("window_width") && REXCVAR_GET(window_width) > 0) {
+       configured_width = REXCVAR_GET(window_width);
+     } else {
+@@ -58,7 +58,7 @@
+ 
+ uint32_t GetConfiguredVideoModeHeight() {
+   int32_t configured_height = REXCVAR_GET(video_mode_height);
+-  if (!rex::cvar::HasNonDefaultValue("video_mode_height")) {
++  if (rex::cvar::GetFlagSource("video_mode_height") == rex::cvar::Source::kDefault) {
+     if (rex::cvar::HasNonDefaultValue("window_height") && REXCVAR_GET(window_height) > 0) {
+       configured_height = REXCVAR_GET(window_height);
+     } else {

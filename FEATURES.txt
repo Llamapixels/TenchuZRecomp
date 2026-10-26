@@ -1,6 +1,19 @@
 TENCHU Z - NATIVE PC PORT: FEATURES
 ====================================
 
+DISPLAY AND LAUNCHER (Alpha 0.1.4)
+----------------------------------
+  [ok]   F6 > Display: named graphics profiles, renderer, monitor, window mode,
+         render scale and menu/overlay size. Profiles exclude frame timing.
+  [ok]   Resizable launcher with scrolling, output presets including 1080p,
+         and Safe launch without overwriting the saved setup.
+  [exp]  Ultrawide gameplay projection with HUD proportions and group HUD
+         size/position controls. Original framing for titles and movie playback.
+  [ok]   Mouse sensitivity 0.01x - 100x in F6 > Camera and the launcher.
+  [bug]  Vulkan mission-1 floor corruption remains unresolved; use D3D12.
+  [ok]   Existing framerate controls and 60 fps patch are unchanged.
+  [ok]   Release ZIP includes built-in shader presets, no user-installed mods.
+
 Status:  [ok]     confirmed working in game
          [test]   built and boot-tested, needs confirming in a mission
          [exp]    experimental

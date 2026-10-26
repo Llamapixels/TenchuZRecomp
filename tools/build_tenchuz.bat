@@ -12,7 +12,7 @@ cd /d "%~dp0..\tenchuz-recomp"
 if errorlevel 1 (echo CD_FAILED & exit /b 1)
 
 echo === CONFIGURE (win-amd64-release) ===
-cmake --preset win-amd64-release
+cmake --preset win-amd64-release -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=
 if errorlevel 1 (echo CONFIGURE_FAILED & exit /b 1)
 
 echo === BUILD (win-amd64-release) ===

@@ -25,7 +25,14 @@ function Copy-Into([string]$source, [string]$destinationDir, [string]$name = "")
     Copy-Item -LiteralPath $source -Destination $target -Recurse -Force
 }
 
-if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
+if (Test-Path -LiteralPath $out) {
+    $resolvedOut = [System.IO.Path]::GetFullPath($out)
+    $resolvedRelease = [System.IO.Path]::GetFullPath($releaseRoot).TrimEnd('\') + '\'
+    if (-not $resolvedOut.StartsWith($resolvedRelease, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Release output escaped the intended release directory.'
+    }
+    Remove-Item -LiteralPath $resolvedOut -Recurse -Force
+}
 [void][System.IO.Directory]::CreateDirectory($out)
 
 # The port.
@@ -49,18 +56,13 @@ foreach ($f in "Tenchu Z Launcher.cmd", "tenchuz_launcher.ps1") {
     Copy-Into (Join-Path $root "tools\launcher\$f") $out
 }
 
-# Shader presets (the preset folders themselves go in shader_overrides\)
-# and an empty mods folder.
+# Always ship the built-in shader presets. Never copy user-installed mods.
 [void][System.IO.Directory]::CreateDirectory((Join-Path $out "shader_overrides"))
 Copy-Item -Path (Join-Path $root "extras\shader_overrides\*") -Destination (Join-Path $out "shader_overrides") -Recurse -Force
-[void][System.IO.Directory]::CreateDirectory((Join-Path $out "mods"))
-Set-Content -LiteralPath (Join-Path $out "mods\PUT MODS HERE.txt") -Encoding ASCII -Value @(
-    "Each mod goes in its own folder here, mirroring the game folder,",
-    "e.g. mods\MyMod\DATA\TEXTURE\ENGLISH\title.xpr. See docs\modding.md.")
 
 # Docs.
 Copy-Into (Join-Path $root "FEATURES.txt") $out
-foreach ($f in "multiplayer.md", "modding.md", "shader_modding.md", "launcher_options.md", "reshade.md") {
+foreach ($f in "multiplayer.md", "modding.md", "shader_modding.md", "launcher_options.md", "display-options.md", "reshade.md") {
     Copy-Into (Join-Path $root "docs\$f") (Join-Path $out "docs")
 }
 

@@ -68,6 +68,7 @@
 
 #include "camera_probe.h"
 #include "controller.h"
+#include "display_settings.h"
 #include "cheat_scanner.h"
 #include "gameplay.h"
 #include "key_bindings.h"
@@ -143,7 +144,18 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
 
  protected:
   void OnDraw(ImGuiIO& io) override {
-    (void)io;
+    display_settings::UpdateOutputSize(io.DisplaySize.x, io.DisplaySize.y);
+    display_settings::UpdatePresentation();
+    // Scope scaling to our menu/overlays; do not change the SDK's other dialogs.
+    struct ScopedScale {
+      ImGuiStyle previous = ImGui::GetStyle();
+      explicit ScopedScale(float factor) {
+        const float font_size = ImGui::GetFontSize();
+        ImGui::GetStyle().ScaleAllSizes(factor);
+        ImGui::PushFont(nullptr, font_size * factor);
+      }
+      ~ScopedScale() { ImGui::PopFont(); ImGui::GetStyle() = previous; }
+    } scale(display_settings::ui_scale());
 
     if (frame_hook_) {
       frame_hook_();
@@ -164,7 +176,13 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(660, 560), ImGuiCond_FirstUseEver);
+    const float menu_scale = display_settings::ui_scale();
+    const ImVec2 available((std::max)(240.0f, io.DisplaySize.x - 16),
+                           (std::max)(180.0f, io.DisplaySize.y - 16));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(240, 180), available);
+    ImGui::SetNextWindowSize(ImVec2((std::min)(760 * menu_scale, available.x),
+                                    (std::min)(560 * menu_scale, available.y)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Tenchu Z v" TENCHUZ_VERSION " (F6)###Tenchu Z (F6)", &visible_,
                       ImGuiWindowFlags_NoCollapse)) {
       ImGui::End();
@@ -172,6 +190,10 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     }
 
     if (ImGui::BeginTabBar("tabs")) {
+      if (ImGui::BeginTabItem("Display")) {
+        DrawDisplay();
+        ImGui::EndTabItem();
+      }
       if (ImGui::BeginTabItem("Cheats")) {
         DrawPlayer();
         ImGui::EndTabItem();
@@ -247,12 +269,137 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   // Settings are written to tenchuz.toml as soon as they change, so the menu
   // and the launcher always agree.
   void Save(std::initializer_list<std::string_view> names) {
+    if (display_settings::safe_launch()) {
+      saved_note_ = "Safe launch: changes are temporary";
+      return;
+    }
     if (exe_dir_.empty()) {
       return;
     }
     saved_note_ = SaveSettings(exe_dir_ / "tenchuz.toml", names)
                       ? "Settings saved to tenchuz.toml"
                       : "Could not save settings (see log)";
+  }
+
+  void DrawDisplay() {
+    if (display_settings::safe_launch()) {
+      ImGui::TextWrapped("Safe launch: settings changes last for this run only. "
+                         "Start normally from the launcher to restore your saved setup.");
+    }
+    ImGui::SeparatorText("Graphics profiles");
+    const auto profiles = display_settings::profiles(exe_dir_);
+    if (ImGui::BeginCombo("Saved profile", profile_name_[0] ? profile_name_ : "Choose a profile")) {
+      for (const auto& name : profiles) {
+        if (ImGui::Selectable(name.c_str()))
+          std::snprintf(profile_name_, sizeof(profile_name_), "%s", name.c_str());
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::InputTextWithHint("Profile name", "Letters, numbers, - or _", profile_name_, sizeof(profile_name_));
+    ImGui::BeginDisabled(display_settings::safe_launch() ||
+                         !display_settings::valid_profile_name(profile_name_));
+    if (ImGui::Button("Save current graphics"))
+      saved_note_ = display_settings::SaveProfile(exe_dir_, profile_name_)
+          ? "Graphics profile saved" : "Could not save profile";
+    ImGui::SameLine();
+    if (ImGui::Button("Load profile"))
+      saved_note_ = display_settings::LoadProfile(exe_dir_, profile_name_)
+          ? "Profile loaded; restart for renderer, window and render scale changes"
+          : "Could not load profile";
+    ImGui::EndDisabled();
+    ImGui::TextWrapped("Profiles include display, camera FOV/distance and shader selection. "
+                       "Frame rate, controls, cheats and mods stay as you set them.");
+
+    ImGui::SeparatorText("Display (restart for window changes)");
+    bool fullscreen = rex::cvar::Query<bool>("fullscreen");
+    int mode = fullscreen ? 1 : 0;
+    if (ImGui::Combo("Display mode", &mode, "Windowed\0Borderless fullscreen\0")) {
+      rex::cvar::SetFlagByName("fullscreen", mode ? "true" : "false");
+      Save({"fullscreen"});
+    }
+    const auto device = rex::cvar::GetFlagByName("display_device");
+    if (ImGui::BeginCombo("Monitor", device.empty() ? "System default" : device.c_str())) {
+      if (ImGui::Selectable("System default", device.empty())) {
+        rex::cvar::SetFlagByName("display_device", "");
+        Save({"display_device"});
+      }
+      for (const auto& monitor : display_settings::monitors()) {
+        if (ImGui::Selectable(monitor.label.c_str(), device == monitor.device)) {
+          rex::cvar::SetFlagByName("display_device", monitor.device);
+          Save({"display_device"});
+        }
+      }
+      ImGui::EndCombo();
+    }
+    int width = rex::cvar::Query<int32_t>("window_width");
+    int height = rex::cvar::Query<int32_t>("window_height");
+    ImGui::SetNextItemWidth(130);
+    ImGui::InputInt("Window width", &width);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+      rex::cvar::SetFlagByName("window_width", std::to_string((std::clamp)(width, 0, 8192)));
+      Save({"window_width"});
+    }
+    ImGui::SetNextItemWidth(130);
+    ImGui::InputInt("Window height", &height);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+      rex::cvar::SetFlagByName("window_height", std::to_string((std::clamp)(height, 0, 8192)));
+      Save({"window_height"});
+    }
+    int render_scale = rex::cvar::Query<int32_t>("resolution_scale");
+    if (ImGui::SliderInt("Render scale (restart)", &render_scale, 1, 7, "%dx"))
+      rex::cvar::SetFlagByName("resolution_scale", std::to_string(render_scale));
+    if (ImGui::IsItemDeactivatedAfterEdit()) Save({"resolution_scale"});
+    ImGui::TextDisabled("Internal frame: 1280 x 720, multiplied by render scale.");
+
+    ImGui::SeparatorText("Camera and aspect ratio");
+    bool wide = rex::cvar::Query<bool>("widescreen");
+    if (ImGui::Checkbox("Expand 3D view to window (experimental ultrawide)", &wide)) {
+      rex::cvar::SetFlagByName("widescreen", wide ? "true" : "false");
+      rex::cvar::SetFlagByName("present_letterbox", wide ? "false" : "true");
+      Save({"widescreen", "present_letterbox"});
+    }
+    ImGui::TextWrapped("Keeps vertical framing and follows your window's aspect in gameplay. "
+                       "Titles, movies and scripted camera classes retain original framing. "
+                       "FOV and follow distance are in Camera. Ultrawide remains experimental.");
+    ImGui::Text("3D aspect: %.3f", display_settings::aspect());
+    if (!display_settings::overlay_layout_supported())
+      ImGui::TextWrapped("HUD layout needs the updated GPU plugin (SDK patch 0010).");
+    ImGui::BeginDisabled(!display_settings::overlay_layout_supported());
+    bool correct_hud = rex::cvar::Query<bool>("widescreen_hud_correct");
+    if (ImGui::Checkbox("Keep HUD proportions in ultrawide", &correct_hud)) {
+      rex::cvar::SetFlagByName("widescreen_hud_correct", correct_hud ? "true" : "false");
+      Save({"widescreen_hud_correct"});
+    }
+    for (const auto& setting : std::initializer_list<std::pair<const char*, const char*>>{
+        {"game_hud_scale", "Game HUD size"}, {"game_hud_offset_x", "Game HUD horizontal position"},
+        {"game_hud_offset_y", "Game HUD vertical position"}}) {
+      float value = float(rex::cvar::Query<double>(setting.first));
+      const bool size = std::string_view(setting.first) == "game_hud_scale";
+      if (ImGui::SliderFloat(setting.second, &value, size ? 0.5f : -0.4f,
+                              size ? 1.5f : 0.4f, "%.2f"))
+        rex::cvar::SetFlagByName(setting.first, std::to_string(value));
+      if (ImGui::IsItemDeactivatedAfterEdit()) Save({setting.first});
+    }
+    if (ImGui::Button("Reset game HUD layout")) {
+      rex::cvar::SetFlagByName("game_hud_scale", "1.0");
+      rex::cvar::SetFlagByName("game_hud_offset_x", "0.0");
+      rex::cvar::SetFlagByName("game_hud_offset_y", "0.0");
+      Save({"game_hud_scale", "game_hud_offset_x", "game_hud_offset_y"});
+    }
+    ImGui::TextWrapped("Moves the original HUD as a group after the scene is drawn. "
+                       "Position is a fraction of screen size; large offsets may clip the HUD.");
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Menu and overlay size");
+    float ui_scale = display_settings::ui_scale();
+    if (ImGui::SliderFloat("UI scale", &ui_scale, 0.75f, 2.0f, "%.2fx"))
+      rex::cvar::SetFlagByName("menu_ui_scale", std::to_string(ui_scale));
+    if (ImGui::IsItemDeactivatedAfterEdit()) Save({"menu_ui_scale"});
+    if (ImGui::Button("Reset UI scale")) {
+      rex::cvar::SetFlagByName("menu_ui_scale", "1.0");
+      Save({"menu_ui_scale"});
+    }
+    DrawRenderer();
   }
 
   // ---------------------------------------------------------------------
@@ -415,7 +562,8 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     float mouse_speed =
         static_cast<float>(rex::cvar::Query<double>("mnk_sensitivity"));
     ImGui::SetNextItemWidth(260);
-    if (ImGui::SliderFloat("Mouse speed", &mouse_speed, 0.1f, 5.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Mouse speed", &mouse_speed, 0.01f, 100.0f, "%.2fx",
+                            ImGuiSliderFlags_Logarithmic)) {
       rex::cvar::SetFlagByName("mnk_sensitivity",
                                std::to_string(mouse_speed));
     }
@@ -942,6 +1090,9 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
                         "slightly faster but can break effects that reuse what "
                         "the GPU drew. Applies at once.");
 
+  }
+
+  void DrawRenderer() {
     ImGui::Separator();
     auto api_name = [](const std::string& api) {
       return api == "vulkan" ? "Vulkan" : "Direct3D 12";
@@ -1836,6 +1987,7 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   std::string status_;
   bool visible_ = false;
   char exact_buf_[32] = {0};
+  char profile_name_[49] = {0};
   char watch_addr_buf_[32] = {0};
   bool online_loaded_ = false;
   char join_ip_buf_[128] = {0};

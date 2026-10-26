@@ -21,6 +21,7 @@ set(TENCHUZ_SOURCES
     src/photo_mode.cpp
     src/speedrun.cpp
     src/ui_settings.cpp
+    src/display_settings.cpp
     src/shader_settings.cpp
     src/net_settings.cpp
     src/upnp.cpp
@@ -32,6 +33,15 @@ if(WIN32)
     add_executable(tenchuz WIN32 ${TENCHUZ_SOURCES})
 else()
     add_executable(tenchuz ${TENCHUZ_SOURCES})
+endif()
+
+option(TENCHUZ_DISPLAY_TESTS "Build standalone display/profile persistence checks" OFF)
+if(TENCHUZ_DISPLAY_TESTS)
+    add_executable(tenchuz_display_tests tests/display_settings_tests.cpp
+        src/display_settings.cpp src/settings_store.cpp)
+    target_include_directories(tenchuz_display_tests PRIVATE src)
+    target_link_libraries(tenchuz_display_tests PRIVATE rex::runtime)
+    rexglue_apply_target_settings(tenchuz_display_tests)
 endif()
 
 # Stage the Xenos GPU emulation plugin (rexgpu-xenos.dll) next to the exe.

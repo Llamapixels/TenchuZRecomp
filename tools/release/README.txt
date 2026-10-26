@@ -15,6 +15,13 @@ Everything this port adds is in that menu: online play and join codes,
 your player name, graphics and shader presets, controls, camera, cheats,
 photo mode, speedrun timer and the info overlay.
 
+Alpha 0.1.4: F6 > Display adds graphics profiles, monitor/window choices,
+menu size and experimental ultrawide with HUD size/position controls.
+The launcher is resizable and includes 1080p output presets and Safe launch.
+Mouse sensitivity: 0.01x to 100x in F6 > Camera and in the launcher.
+1080p output uses 2x internal rendering (1440p downsampled to 1080p).
+Built-in shader presets are included; user-installed mods are not bundled.
+
 
 SETTING UP (once)
 -----------------
@@ -37,7 +44,7 @@ PLAYING
 - Or start tenchuz.exe directly.
 - An Xbox controller is recommended. Keyboard and mouse also work.
 - Renderer: Direct3D 12 by default. Vulkan is a work in progress: if the
-  game runs slowly or does not start, pick Vulkan in the launcher (or F6 > Game > Renderer, then
+  game runs slowly or does not start, pick Vulkan in the launcher (or F6 > Display > Renderer, then
   restart). Shader presets need Direct3D 12.
 - Keep the frame rate at 60 Hz with vsync on: the game runs its clock off
   the frame rate, so other values change the game speed. The game shows

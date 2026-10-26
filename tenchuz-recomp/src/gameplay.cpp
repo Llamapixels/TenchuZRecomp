@@ -15,6 +15,7 @@
 #include <cmath>
 
 #include "controller.h"
+#include "display_settings.h"
 
 #include <atomic>
 #include <bit>
@@ -76,6 +77,8 @@ REX_EXTERN(__imp__sub_82296FF8);
 REX_EXTERN(__imp__sub_8241BF50);
 REX_EXTERN(__imp__sub_824103F8);
 REX_EXTERN(__imp__sub_823E0A88);
+REX_EXTERN(__imp__sub_823E1128);
+REX_EXTERN(__imp__sub_823E0C40);
 REX_EXTERN(__imp__sub_823E3830);
 REX_EXTERN(__imp__sub_82410408);
 REX_EXTERN(__imp__sub_8229EDE0);
@@ -114,6 +117,7 @@ constexpr uint32_t kCameraProjectionDirty = 72;
 std::atomic<float> g_game_fov{0.0f};
 std::atomic<uint32_t> g_fov_camera{0};
 double g_applied_fov_factor = 1.0;  // guest pad thread only
+float g_applied_aspect = 16.0f / 9.0f;
 
 rex::memory::Memory* g_memory = nullptr;
 
@@ -744,7 +748,8 @@ void PerformPendingTeleport(PPCContext& ctx, uint8_t* base) {
 // SetFov does.
 void ApplyFovSetting(uint8_t* base, const CameraInput& input) {
   const double factor = input.fov_degrees / kGameFovDegrees;
-  if (factor == g_applied_fov_factor) {
+  const float aspect = display_settings::aspect();
+  if (factor == g_applied_fov_factor && aspect == g_applied_aspect) {
     return;
   }
   const uint32_t camera = LoadBeU32(base + kCameraPointer);
@@ -758,6 +763,7 @@ void ApplyFovSetting(uint8_t* base, const CameraInput& input) {
   const uint32_t dirty = std::byteswap(uint32_t{1});
   std::memcpy(base + camera + kCameraProjectionDirty, &dirty, 4);
   g_applied_fov_factor = factor;
+  g_applied_aspect = aspect;
 }
 
 }  // namespace
@@ -813,6 +819,10 @@ REX_HOOK_RAW(sub_82296FF8) {
       return;
     }
   }
+  struct MovieScope {
+    MovieScope() { tenchuz::display_settings::SetMoviePlaying(true); }
+    ~MovieScope() { tenchuz::display_settings::SetMoviePlaying(false); }
+  } movie_scope;
   __imp__sub_82296FF8(ctx, base);
 }
 
@@ -846,6 +856,42 @@ REX_HOOK_RAW(sub_823E0A88) {
   const double factor = gp::camera_input().fov_degrees / gp::kGameFovDegrees;
   ctx.f1.f64 = requested * factor;
   __imp__sub_823E0A88(ctx, base);
+}
+
+// Perspective matrix: f1 vertical FOV, f2 aspect, f3 near, f4 far.
+// Restrict this to the main camera projection builder's call site, leaving
+// unrelated projections alone. Correcting X before stretching the original
+// render target to the output preserves geometry and vertical framing.
+REX_HOOK_RAW(sub_823E1128) {
+  if (ctx.lr == 0x823E1244 &&
+      std::abs(ctx.f2.f64 - 16.0 / 9.0) < 0.01) {
+    ctx.f2.f64 = tenchuz::display_settings::aspect();
+  }
+  __imp__sub_823E1128(ctx, base);
+}
+
+// Camera manager: choose the same active slot as the original code. Gameplay
+// and photo mode use the known follow-camera class; scripted camera classes
+// retain 16:9 composition. Dirty the chosen projection on aspect transitions.
+REX_HOOK_RAW(sub_823E0C40) {
+  namespace gp = tenchuz::gameplay;
+  uint32_t slot = 0;
+  for (uint32_t i = 0; i < 5; ++i) {
+    const int32_t selected = int32_t(gp::LoadBeU32(base + 0x8340BCD4u + i * 4));
+    if (selected >= 0 && selected < 16) { slot = uint32_t(selected); break; }
+  }
+  const uint32_t camera = gp::LoadBeU32(base + 0x8340BCF0u + slot * 4);
+  const bool readable = camera && gp::g_memory && gp::GuestRangeReadable(gp::g_memory, camera, 80);
+  tenchuz::display_settings::SetSceneCamera(readable && gp::LoadBeU32(base + camera) == gp::kCameraVtable);
+  static float last_aspect = 16.0f / 9.0f;
+  static uint32_t last_camera = 0;
+  const float aspect = tenchuz::display_settings::aspect();
+  if (readable && (aspect != last_aspect || camera != last_camera)) {
+    gp::StoreBeU32(base + camera + gp::kCameraProjectionDirty, 1);
+    last_aspect = aspect;
+    last_camera = camera;
+  }
+  __imp__sub_823E0C40(ctx, base);
 }
 
 // Camera eye placement (out, v1 = eye offset, v2 = look-at offset, f1 = yaw):

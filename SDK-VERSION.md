@@ -1,5 +1,20 @@
 # SDK Version Record — Tenchu Z Recompilation
 
+## Additional display patches (2026-10-25)
+
+Apply `0010-overlay-layout.patch` and `0011-explicit-video-mode.patch` after
+patches 1–9, rebuild/install the SDK, then relink the game to restage both DLLs.
+Patch 10 adds `rex_set_overlay_layout` and transforms HUD draws after the final
+screen pass on D3D12/Vulkan. NDC and scissors use the visible frame center,
+including when the backend creates an oversized synthetic viewport for 2D.
+Patch 11 honors explicit `video_mode_width/height` values equal to their defaults,
+instead of silently substituting window dimensions. Neither changes timing.
+No additional Vulkan shader workaround is shipped: the floor remains unresolved.
+
+Patch `0012-mouse-sensitivity.patch` extends `mnk_sensitivity` to 0.01–100x
+and clamps mouse deltas before integer conversion to avoid overflow at high
+sensitivity. F6 and the launcher expose the same range. No timing code changes.
+
 ## Pinned SDK
 
 - **Repository**: https://github.com/rexglue/rexglue-sdk

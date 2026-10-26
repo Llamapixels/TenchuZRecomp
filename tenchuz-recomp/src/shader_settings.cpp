@@ -17,6 +17,7 @@
 #include <rex/logging.h>
 
 #include "gameplay.h"
+#include "display_settings.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -49,8 +50,6 @@ constexpr size_t kSlotUp = 57;
 constexpr size_t kSlotTime = 60;
 constexpr size_t kSlotCameraValid = 61;
 constexpr size_t kSlotState = 63;
-// The game always draws a 16:9 frame (1280x720).
-constexpr float kAspect = 16.0f / 9.0f;
 
 std::vector<fs::path> roots_;
 fs::path values_path_;
@@ -253,6 +252,7 @@ void reset_values() {
 }
 
 bool SaveValues() {
+  if (display_settings::safe_launch()) return false;
   if (loaded_.empty()) {
     return true;
   }
@@ -303,7 +303,7 @@ static void FillCamera(rex::memory::Memory* memory, std::array<float, kSlots>& v
   const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2],
                       f[0] * r[1] - f[1] * r[0]};
   const float tan_y = std::tan(fov * 0.5f);
-  const float tan_x = tan_y * kAspect;
+  const float tan_x = tan_y * display_settings::aspect();
   for (int i = 0; i < 3; ++i) {
     values[kSlotEye + i] = eye[i];
     values[kSlotForward + i] = f[i];

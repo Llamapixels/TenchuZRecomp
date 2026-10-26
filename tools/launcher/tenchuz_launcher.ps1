@@ -38,7 +38,9 @@ param(
     # Just write the config and exit, without showing the UI (useful for scripts)
     [switch]$Headless,
     # Render scale to apply in headless mode, e.g. -Preset 3x
-    [string]$Preset
+    [string]$Preset,
+    # Recovery uses command-line overrides for one run, without saving config.
+    [switch]$SafeLaunch
 )
 
 Set-StrictMode -Version Latest
@@ -124,10 +126,23 @@ $script:ManagedKeys = @(
     'mods_enabled',
     'skip_intro_movies',
     'mnk_mouse',
+    'mnk_sensitivity',
     'dump_shaders',
     'gpu_backend',
-    'frame_rate_60'
+    'frame_rate_60',
+    'display_device', 'present_letterbox', 'widescreen', 'menu_ui_scale',
+    'camera_fov', 'camera_distance', 'shader_preset', 'shader_effects',
+    'shader_overrides_enabled', 'widescreen_hud_correct', 'game_hud_scale',
+    'game_hud_offset_x', 'game_hud_offset_y'
 )
+
+# Keep in sync with display_settings.cpp. Profiles never alter frame timing.
+$script:ProfileKeys = @('gpu_backend', 'resolution_scale', 'window_width',
+    'window_height', 'fullscreen', 'display_device', 'present_letterbox',
+    'widescreen', 'menu_ui_scale', 'camera_fov', 'camera_distance',
+    'shader_preset', 'shader_effects', 'shader_overrides_enabled',
+    'widescreen_hud_correct', 'game_hud_scale', 'game_hud_offset_x', 'game_hud_offset_y')
+$script:ProfilesDir = Join-Path $script:ExeDir 'graphics_profiles'
 
 # Tenchu Z always draws a 1280x720 frame, whatever video mode it is given:
 # measured by hooking the game's Swap (gameplay.cpp logs "game frame size"),
@@ -165,7 +180,7 @@ function Format-TomlValue {
         return ([double]$Value).ToString('0.0###', [System.Globalization.CultureInfo]::InvariantCulture)
     }
     # Strings must be quoted.
-    $escaped = ($Value -replace '\\', '\\\\') -replace '"', '\"'
+    $escaped = ([string]$Value).Replace('\', '\\').Replace('"', '\"')
     return '"' + $escaped + '"'
 }
 
@@ -178,9 +193,11 @@ function Format-TomlValue {
       overrides such as video_mode_width can be left to the resolution preset).
 #>
 function Write-Config {
-    param([hashtable]$Values)
+    param([hashtable]$Values, [string]$Path = $script:Config,
+          [string[]]$Keys = $script:ManagedKeys)
 
-    $lines = Read-ConfigLines
+    $lines = @()
+    if (Test-Path -LiteralPath $Path) { $lines = @(Get-Content -LiteralPath $Path) }
     $out = New-Object System.Collections.Generic.List[string]
     $seen = @{}
 
@@ -204,7 +221,7 @@ function Write-Config {
         $m = [regex]::Match($line, $keyRegex)
         if ($inRoot -and $m.Success) {
             $key = $m.Groups[1].Value
-            if ($script:ManagedKeys -contains $key) {
+            if ($Keys -contains $key) {
                 $seen[$key] = $true
                 if ($null -ne $Values[$key]) {
                     $out.Add(("$key = " + (Format-TomlValue -Key $key -Value $Values[$key])))
@@ -218,7 +235,7 @@ function Write-Config {
 
     # Insert any managed keys that were not present in the file at all.
     $missing = New-Object System.Collections.Generic.List[string]
-    foreach ($key in $script:ManagedKeys) {
+    foreach ($key in $Keys) {
         if ($null -ne $Values[$key] -and -not $seen.ContainsKey($key)) {
             $missing.Add(("$key = " + (Format-TomlValue -Key $key -Value $Values[$key])))
         }
@@ -248,7 +265,7 @@ function Write-Config {
 
     # Windows PowerShell's -Encoding UTF8 writes a byte-order mark; write plain
     # UTF-8 instead so the file stays a clean TOML document.
-    [System.IO.File]::WriteAllText($script:Config, $text, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($Path, $text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 # ---------------------------------------------------------------------------
@@ -256,7 +273,7 @@ function Write-Config {
 # ---------------------------------------------------------------------------
 
 function Start-Game {
-    param([switch]$WaitForExit)
+    param([switch]$WaitForExit, [switch]$Recovery)
 
     $running = @(Get-Process tenchuz -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
@@ -285,11 +302,28 @@ function Start-Game {
         '--log_flush_interval=1',
         '--mnk_mode=true'
     )
+    if ($Recovery) {
+        # CLI outranks TOML. Neither the launcher nor the recovery game saves
+        # these overrides. Preserve all framerate/refresh/vsync/tearing values.
+        $gameArgs += @('--safe_launch=true', '--gpu_backend=d3d12',
+            '--resolution_scale=1', '--draw_resolution_scale_x=1', '--draw_resolution_scale_y=1',
+            '--window_width=1280', '--window_height=720', '--fullscreen=false',
+            '--monitor=0', '--display_device=""', '--widescreen=false', '--present_letterbox=true',
+            '--menu_ui_scale=1.0', '--mods_enabled=false', '--shader_overrides_enabled=false',
+            '--shader_override_dir=""',
+            '--shader_effects=false', '--camera_fov=48.0', '--camera_distance=1.0')
+        $gameArgs += @('--game_hud_scale=1.0', '--game_hud_offset_x=0.0', '--game_hud_offset_y=0.0')
+    }
 
     $p = Start-Process -FilePath $script:Exe -ArgumentList $gameArgs `
-                       -WorkingDirectory $script:ExeDir -PassThru
+                       -WorkingDirectory $script:ExeDir -WindowStyle Hidden -PassThru
     if ($WaitForExit) { $p.WaitForExit() }
     return $p
+}
+
+if ($SafeLaunch) {
+    [void](Start-Game -Recovery)
+    return
 }
 
 # ---------------------------------------------------------------------------
@@ -304,9 +338,9 @@ Add-Type -AssemblyName WindowsBase
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Tenchu Z - ReXGlue Launcher"
-        SizeToContent="Height" Width="560"
+        Width="800" Height="900" MinWidth="600" MinHeight="480"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="CanMinimize"
+        ResizeMode="CanResize"
         Background="#1E1E1E">
   <Window.Resources>
     <Style TargetType="TextBlock">
@@ -339,7 +373,9 @@ Add-Type -AssemblyName WindowsBase
     </Style>
   </Window.Resources>
 
-  <Grid Margin="14">
+  <ScrollViewer x:Name="ContentScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <Grid Margin="14" Width="530" HorizontalAlignment="Center">
+    <Grid.LayoutTransform><ScaleTransform x:Name="ContentScale" ScaleX="1" ScaleY="1"/></Grid.LayoutTransform>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
@@ -351,7 +387,15 @@ Add-Type -AssemblyName WindowsBase
     </Grid.RowDefinitions>
 
     <!-- Rendering resolution -->
-    <GroupBox Grid.Row="0" Header="Rendering resolution (what the game actually draws)">
+    <GroupBox Grid.Row="0" Header="Graphics">
+      <StackPanel>
+        <TextBlock Text="Graphics profiles" Margin="0,0,0,4"/>
+        <ComboBox x:Name="GraphicsProfile" IsEditable="True" ToolTip="Name: up to 48 letters, numbers, - or _"/>
+        <WrapPanel Margin="0,4,0,10">
+          <Button x:Name="SaveProfile" Content="Save current graphics" Padding="8,3" Margin="0,0,8,0"/>
+          <Button x:Name="LoadProfile" Content="Load profile" Padding="8,3"/>
+        </WrapPanel>
+        <TextBlock Text="Profiles include display, camera and shader settings. Frame rate, controls, cheats and mods stay as you set them." TextWrapping="Wrap" Foreground="#A0A0A0" Margin="0,0,0,8"/>
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="150"/>
@@ -392,10 +436,11 @@ Add-Type -AssemblyName WindowsBase
                    TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#A0A0A0"
                    Text="Try Vulkan if the game runs slowly or does not start with Direct3D 12. If Vulkan cannot start, the game uses Direct3D 12. Shader presets need Direct3D 12."/>
       </Grid>
+      </StackPanel>
     </GroupBox>
 
     <!-- Window -->
-    <GroupBox Grid.Row="1" Header="Window">
+    <GroupBox Grid.Row="1" Header="Display and camera">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="150"/>
@@ -404,17 +449,52 @@ Add-Type -AssemblyName WindowsBase
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Window size:" Margin="0,2"/>
-        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Output resolution:" Margin="0,2"/>
+        <StackPanel Grid.Row="0" Grid.Column="1">
+          <ComboBox x:Name="OutputResolution" Margin="0,0,0,5">
+            <ComboBoxItem Content="Custom" Tag="custom"/>
+            <ComboBoxItem Content="1280 x 720 (720p)" Tag="1280x720"/>
+            <ComboBoxItem Content="1920 x 1080 (1080p)" Tag="1920x1080"/>
+            <ComboBoxItem Content="2560 x 1440 (1440p)" Tag="2560x1440"/>
+            <ComboBoxItem Content="3840 x 2160 (4K)" Tag="3840x2160"/>
+            <ComboBoxItem Content="2560 x 1080 (ultrawide)" Tag="2560x1080"/>
+            <ComboBoxItem Content="3440 x 1440 (ultrawide)" Tag="3440x1440"/>
+            <ComboBoxItem Content="5120 x 1440 (32:9)" Tag="5120x1440"/>
+          </ComboBox>
+          <StackPanel Orientation="Horizontal">
           <TextBox x:Name="WinW" Width="80" Text="1280"/>
           <TextBlock Text=" x " Margin="6,0"/>
           <TextBox x:Name="WinH" Width="80" Text="720"/>
           <Button x:Name="MatchWindow" Content="Match screen" Margin="10,0,0,0" Padding="8,2"/>
+          </StackPanel>
         </StackPanel>
 
-        <CheckBox Grid.Row="1" Grid.Column="1" x:Name="Fullscreen" Content="Start in fullscreen" Margin="0,8,0,0"/>
+        <TextBlock Grid.Row="1" Text="Display mode:"/>
+        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="DisplayMode">
+          <ComboBoxItem Content="Windowed"/><ComboBoxItem Content="Borderless fullscreen"/>
+        </ComboBox>
+        <TextBlock Grid.Row="2" Text="Monitor:"/>
+        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Monitor"/>
+        <CheckBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="Widescreen" Content="Expand 3D view to window (experimental ultrawide)"/>
+        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" TextWrapping="Wrap" Foreground="#A0A0A0" Margin="0,4,0,6"
+          Text="Expands gameplay horizontally and corrects HUD proportions. Titles, movies and scripted camera classes keep original framing. HUD position and size are in F6 > Display. Ultrawide remains experimental."/>
+        <TextBlock Grid.Row="5" Text="Camera FOV (degrees):"/>
+        <TextBox Grid.Row="5" Grid.Column="1" x:Name="CameraFov"/>
+        <TextBlock Grid.Row="6" Text="Follow distance:"/>
+        <TextBox Grid.Row="6" Grid.Column="1" x:Name="CameraDistance"/>
+        <TextBlock Grid.Row="7" Text="F6 menu / overlay size:"/>
+        <ComboBox Grid.Row="7" Grid.Column="1" x:Name="MenuScale" IsEditable="True"/>
+        <TextBlock Grid.Row="8" Grid.ColumnSpan="2" TextWrapping="Wrap" Foreground="#A0A0A0" Margin="0,4,0,0"
+          Text="Camera defaults: 48 degrees, 1.0x distance. Menu scale: 0.75 to 2.0. Borderless uses the selected monitor's desktop resolution. Window dimensions apply to windowed mode."/>
       </Grid>
     </GroupBox>
 
@@ -460,6 +540,10 @@ Add-Type -AssemblyName WindowsBase
         <CheckBox x:Name="FreeShop" Content="Free shop purchases"/>
         <CheckBox x:Name="SkipIntro" Content="Skip intro movies (logos and opening)"/>
         <CheckBox x:Name="MouseLook" Content="Mouse look (keyboard &amp; mouse players)"/>
+        <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
+          <TextBlock Text="Mouse sensitivity (0.01-100x):" Margin="0,0,8,0"/>
+          <TextBox x:Name="MouseSensitivity" Width="85" Text="1.0"/>
+        </StackPanel>
         <CheckBox x:Name="DumpShaders" Content="Dump shaders for shader modding (to shader_dump\ next to the game)"/>
         <StackPanel Orientation="Horizontal">
           <CheckBox x:Name="ModsEnabled" Content="Load mods"/>
@@ -487,14 +571,17 @@ Add-Type -AssemblyName WindowsBase
     </GroupBox>
 
     <!-- Actions -->
-    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+    <WrapPanel Grid.Row="4" HorizontalAlignment="Right" Margin="0,0,0,8">
+      <Button x:Name="SafeLaunch" Content="Safe launch" Padding="14,5" Margin="0,0,8,0"
+        ToolTip="Starts once in a 1280x720 window with Direct3D 12, 1x scale, mods/effects off. Does not save settings or change your frame rate."/>
       <Button x:Name="SaveOnly" Content="Save config" Padding="14,5" Margin="0,0,8,0"/>
       <Button x:Name="Launch" Content="Save &amp; Launch" Padding="14,5" FontWeight="Bold"/>
-    </StackPanel>
+    </WrapPanel>
 
     <TextBlock Grid.Row="5" x:Name="Status" Foreground="#6A9955" TextWrapping="Wrap" Margin="0,0,0,4"/>
     <TextBlock Grid.Row="6" x:Name="PathInfo" Foreground="#808080" FontSize="11" TextWrapping="Wrap"/>
   </Grid>
+  </ScrollViewer>
 </Window>
 '@
 
@@ -504,13 +591,37 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 # Grab named controls.
 $ui = @{}
 foreach ($name in @('RenderScale','EffectiveDraw',
-                    'WinW','WinH','MatchWindow','Fullscreen','Refresh','VSync',
+                    'WinW','WinH','OutputResolution','MatchWindow','DisplayMode','Refresh','VSync',
                     'AllowTearing','SaveOnly','Launch','Status','PathInfo','SpeedNote',
                     'GodMode','FreeShop','ModsEnabled','OpenMods','ModCount',
-                    'SkipIntro','MouseLook','ModList','ModUp','ModDown','ModRefresh',
-                    'DumpShaders','Renderer','Fps60')) {
+                    'SkipIntro','MouseLook','MouseSensitivity','ModList','ModUp','ModDown','ModRefresh',
+                    'DumpShaders','Renderer','Fps60','GraphicsProfile','SaveProfile','LoadProfile',
+                    'Monitor','Widescreen','MenuScale','CameraFov','CameraDistance',
+                    'SafeLaunch','ContentScroll','ContentScale')) {
     $ui[$name] = $window.FindName($name)
 }
+
+# WPF already follows monitor DPI. This additional uniform layout scale follows
+# window width; the scroll viewer keeps every control reachable at short heights.
+$window.MaxHeight = [System.Windows.SystemParameters]::WorkArea.Height
+$window.Height = [math]::Min(900, $window.MaxHeight * 0.92)
+$ui.ContentScroll.Add_SizeChanged({
+    $factor = [math]::Max(0.75, [math]::Min(1.8, ($ui.ContentScroll.ActualWidth - 20) / 558.0))
+    $ui.ContentScale.ScaleX = $factor
+    $ui.ContentScale.ScaleY = $factor
+})
+foreach ($scale in @('0.75', '1.0', '1.25', '1.5', '1.75', '2.0')) { [void]$ui.MenuScale.Items.Add($scale) }
+Add-Type -AssemblyName System.Windows.Forms
+$script:Screens = @([System.Windows.Forms.Screen]::AllScreens)
+[void]$ui.Monitor.Items.Add([pscustomobject]@{ Label='System default'; Device='' })
+foreach ($screen in $script:Screens) {
+    [void]$ui.Monitor.Items.Add([pscustomobject]@{
+        Label=('{0}  {1} x {2}{3}' -f $screen.DeviceName, $screen.Bounds.Width,
+            $screen.Bounds.Height, $(if ($screen.Primary) { ' (primary)' } else { '' }))
+        Device=$screen.DeviceName
+    })
+}
+$ui.Monitor.DisplayMemberPath = 'Label'
 
 # Populate refresh rates.
 foreach ($hz in $script:RefreshPresets) { [void]$ui.Refresh.Items.Add($hz) }
@@ -550,9 +661,25 @@ function Load-CurrentConfig {
     # Window
     if ($vals.ContainsKey('window_width'))  { $ui.WinW.Text = ($vals['window_width']  -replace '[^0-9]','') }
     if ($vals.ContainsKey('window_height')) { $ui.WinH.Text = ($vals['window_height'] -replace '[^0-9]','') }
+    Update-OutputPreset
 
     # Fullscreen / vsync / tearing
-    $ui.Fullscreen.IsChecked   = ($vals['fullscreen'] -eq 'true')
+    $ui.DisplayMode.SelectedIndex = $(if ($vals['fullscreen'] -eq 'true') { 1 } else { 0 })
+    $ui.Widescreen.IsChecked = ($vals['widescreen'] -eq 'true')
+    $ui.CameraFov.Text = $(if ($vals.ContainsKey('camera_fov')) { $vals['camera_fov'] } else { '48.0' })
+    $ui.CameraDistance.Text = $(if ($vals.ContainsKey('camera_distance')) { $vals['camera_distance'] } else { '1.0' })
+    $ui.MenuScale.Text = $(if ($vals.ContainsKey('menu_ui_scale')) { $vals['menu_ui_scale'] } else { '1.0' })
+    $ui.Monitor.SelectedIndex = 0
+    if ($vals.ContainsKey('display_device')) {
+        $device = Convert-RootValue $vals['display_device']
+        for ($i = 0; $i -lt $ui.Monitor.Items.Count; $i++) {
+            if ($ui.Monitor.Items[$i].Device -eq $device) { $ui.Monitor.SelectedIndex = $i; break }
+        }
+        if ($device -and $ui.Monitor.SelectedIndex -eq 0) {
+            [void]$ui.Monitor.Items.Add([pscustomobject]@{ Label="$device (disconnected; uses default)"; Device=$device })
+            $ui.Monitor.SelectedIndex = $ui.Monitor.Items.Count - 1
+        }
+    }
     $ui.VSync.IsChecked        = ($vals['vsync'] -ne 'false')   # SDK default is true
     $ui.AllowTearing.IsChecked = ($vals['d3d12_allow_variable_refresh_rate_and_tearing'] -ne 'false')
 
@@ -562,6 +689,7 @@ function Load-CurrentConfig {
     $ui.ModsEnabled.IsChecked = ($vals['mods_enabled'] -ne 'false')
     $ui.SkipIntro.IsChecked   = ($vals['skip_intro_movies'] -eq 'true')
     $ui.MouseLook.IsChecked   = ($vals['mnk_mouse'] -eq 'true')
+    $ui.MouseSensitivity.Text = $(if ($vals.ContainsKey('mnk_sensitivity')) { $vals['mnk_sensitivity'] } else { '1.0' })
     $ui.DumpShaders.IsChecked = ($vals.ContainsKey('dump_shaders') -and $vals['dump_shaders'] -notmatch '^""?$')
 
     # Refresh
@@ -587,6 +715,20 @@ function Update-EffectiveDraw {
     $s = Get-RenderScale
     $ui.EffectiveDraw.Text = "$($script:GameFrame.w * $s) x $($script:GameFrame.h * $s)"
     Update-SpeedNote
+}
+
+function Update-OutputPreset {
+    $size = $ui.WinW.Text.Trim() + 'x' + $ui.WinH.Text.Trim()
+    $script:SyncingOutput = $true
+    try {
+        $ui.OutputResolution.SelectedIndex = 0
+        for ($i=1; $i -lt $ui.OutputResolution.Items.Count; $i++) {
+            if ([string]$ui.OutputResolution.Items[$i].Tag -eq $size) {
+                $ui.OutputResolution.SelectedIndex=$i
+                break
+            }
+        }
+    } finally { $script:SyncingOutput = $false }
 }
 
 <#
@@ -638,7 +780,7 @@ function Build-Values {
         video_mode_width          = [int]$script:GameFrame.w
         video_mode_height         = [int]$script:GameFrame.h
         video_mode_refresh_rate   = $hz
-        fullscreen                = [bool]$ui.Fullscreen.IsChecked
+        fullscreen                = ($ui.DisplayMode.SelectedIndex -eq 1)
         vsync                     = [bool]$ui.VSync.IsChecked
         d3d12_allow_variable_refresh_rate_and_tearing = [bool]$ui.AllowTearing.IsChecked
         god_mode                  = [bool]$ui.GodMode.IsChecked
@@ -646,10 +788,26 @@ function Build-Values {
         mods_enabled              = [bool]$ui.ModsEnabled.IsChecked
         skip_intro_movies         = [bool]$ui.SkipIntro.IsChecked
         mnk_mouse                 = [bool]$ui.MouseLook.IsChecked
+        mnk_sensitivity           = Read-Number $ui.MouseSensitivity.Text 0.01 100 'Mouse sensitivity'
         # A path turns dumping on; $null removes the key (runtime default: off).
         dump_shaders              = $(if ($ui.DumpShaders.IsChecked) { Join-Path $script:ExeDir 'shader_dump' } else { $null })
         gpu_backend               = $(if ($ui.Renderer.SelectedIndex -eq 1) { 'vulkan' } else { 'd3d12' })
         frame_rate_60             = [bool]$ui.Fps60.IsChecked
+        display_device            = [string]$ui.Monitor.SelectedItem.Device
+        widescreen                = [bool]$ui.Widescreen.IsChecked
+        present_letterbox         = (-not [bool]$ui.Widescreen.IsChecked)
+        camera_fov                = Read-Number $ui.CameraFov.Text 30 100 'Camera FOV'
+        camera_distance           = Read-Number $ui.CameraDistance.Text 0.5 2.5 'Camera distance'
+        menu_ui_scale             = Read-Number $ui.MenuScale.Text 0.75 2.0 'Menu scale'
+    }
+    # These have no launcher editor. Preserve the selections made in F6.
+    $root = Read-RootValues $script:Config
+    foreach ($key in @('shader_preset', 'shader_effects', 'shader_overrides_enabled',
+                      'widescreen_hud_correct', 'game_hud_scale', 'game_hud_offset_x', 'game_hud_offset_y')) {
+        if ($root.ContainsKey($key)) { $vals[$key] = Convert-RootValue $root[$key] }
+    }
+    foreach ($entry in @{widescreen_hud_correct=$true; game_hud_scale=1.0; game_hud_offset_x=0.0; game_hud_offset_y=0.0}.GetEnumerator()) {
+        if (-not $vals.ContainsKey($entry.Key)) { $vals[$entry.Key] = $entry.Value }
     }
 
     # Only pin an explicit window size when the user asked for one. Leaving
@@ -661,11 +819,143 @@ function Build-Values {
     return $vals
 }
 
+function Read-Number([string]$Text, [double]$Min, [double]$Max, [string]$Label) {
+    $value = 0.0
+    if (-not [double]::TryParse($Text.Trim(), [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture, [ref]$value) -or
+            [double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt $Min -or $value -gt $Max) {
+        throw "$Label must be between $Min and $Max (use a decimal point)."
+    }
+    return $value
+}
+
+function Read-RootValues([string]$Path) {
+    $values = @{}
+    if (Test-Path -LiteralPath $Path) {
+        foreach ($line in (Get-Content -LiteralPath $Path)) {
+            if ($line -match '^\s*\[') { break }
+            # Generated profile values are single-line TOML primitives.
+            if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*("(?:[^"\\]|\\.)*"|true|false|[-+0-9.eE]+)\s*(?:#.*)?$') {
+                $values[$matches[1]] = $matches[2]
+            }
+        }
+    }
+    return $values
+}
+
+function Convert-RootValue([string]$Value) {
+    if ($Value.StartsWith('"')) { return (ConvertFrom-Json -InputObject $Value) }
+    if ($Value -eq 'true') { return $true }
+    if ($Value -eq 'false') { return $false }
+    if ($Value -match '^[-+]?\d+$') { return [int]::Parse($Value, [System.Globalization.CultureInfo]::InvariantCulture) }
+    return Read-Number $Value (-1e10) 1e10 'Profile value'
+}
+
+function Test-ProfileValues([hashtable]$Values) {
+    $ranges = @{
+        resolution_scale=@(1,7); window_width=@(0,8192); window_height=@(0,8192)
+        camera_fov=@(30,100); camera_distance=@(0.5,2.5); menu_ui_scale=@(0.75,2.0)
+        game_hud_scale=@(0.5,1.5); game_hud_offset_x=@(-0.4,0.4); game_hud_offset_y=@(-0.4,0.4)
+    }
+    foreach ($key in $Values.Keys) {
+        $value = $Values[$key]
+        if ($ranges.ContainsKey($key)) {
+            if ($value -is [bool] -or $value -is [string]) { throw "Invalid numeric profile value: $key" }
+            [void](Read-Number ([string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0}', $value)) $ranges[$key][0] $ranges[$key][1] $key)
+            if ($key -in @('resolution_scale','window_width','window_height') -and [double]$value -ne [math]::Truncate([double]$value)) {
+                throw "$key must be a whole number."
+            }
+        } elseif ($key -in @('gpu_backend','display_device','shader_preset')) {
+            if ($value -isnot [string]) { throw "Invalid text profile value: $key" }
+        } elseif ($value -isnot [bool]) { throw "Invalid checkbox profile value: $key" }
+    }
+    if ($Values.ContainsKey('gpu_backend') -and $Values.gpu_backend -notin @('d3d12','vulkan')) {
+        throw 'Profile renderer must be d3d12 or vulkan.'
+    }
+}
+
+function Get-ProfilePath {
+    $name = $ui.GraphicsProfile.Text.Trim()
+    if ($name -notmatch '^[A-Za-z0-9_-]{1,48}$' -or $name -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
+        throw 'Profile name: use 1-48 letters, numbers, - or _ (no Windows reserved names).'
+    }
+    return Join-Path $script:ProfilesDir ($name + '.toml')
+}
+
+function Refresh-Profiles {
+    $text = $ui.GraphicsProfile.Text
+    $ui.GraphicsProfile.Items.Clear()
+    if (Test-Path -LiteralPath $script:ProfilesDir) {
+        foreach ($file in (Get-ChildItem -LiteralPath $script:ProfilesDir -Filter '*.toml' -File | Sort-Object Name)) {
+            if ($file.BaseName -match '^[A-Za-z0-9_-]{1,48}$') { [void]$ui.GraphicsProfile.Items.Add($file.BaseName) }
+        }
+    }
+    $ui.GraphicsProfile.Text = $text
+}
+
+$ui.SaveProfile.Add_Click({
+    try {
+        $path = Get-ProfilePath
+        $current = Build-Values
+        # Supply defaults for F6 settings absent from a fresh config.
+        if (-not $current.ContainsKey('shader_preset')) { $current.shader_preset = 'Modern Look' }
+        if (-not $current.ContainsKey('shader_effects')) { $current.shader_effects = $true }
+        if (-not $current.ContainsKey('shader_overrides_enabled')) { $current.shader_overrides_enabled = $true }
+        New-Item -ItemType Directory -Path $script:ProfilesDir -Force | Out-Null
+        Write-Config -Values $current -Path $path -Keys $script:ProfileKeys
+        Refresh-Profiles
+        $ui.Status.Text = 'Graphics profile saved. Frame rate settings are excluded.'
+    } catch { $ui.Status.Text = "ERROR: $($_.Exception.Message)" }
+})
+$ui.LoadProfile.Add_Click({
+    try {
+        $path = Get-ProfilePath
+        if (-not (Test-Path -LiteralPath $path)) { throw 'Choose an existing graphics profile.' }
+        if (Get-Process tenchuz -ErrorAction SilentlyContinue) { throw 'Close the game before loading a profile, or load it in F6 > Display.' }
+        $raw = Read-RootValues $path
+        $current = Build-Values
+        $count = 0
+        $profileValues = @{}
+        foreach ($key in $script:ProfileKeys) {
+            if ($raw.ContainsKey($key)) { $profileValues[$key] = Convert-RootValue $raw[$key]; $count++ }
+        }
+        if (-not $count) { throw 'This profile has no supported graphics settings.' }
+        Test-ProfileValues $profileValues
+        foreach ($key in $profileValues.Keys) { $current[$key] = $profileValues[$key] }
+        Write-Config -Values $current
+        Load-CurrentConfig
+        Update-EffectiveDraw
+        $ui.Status.Text = 'Graphics profile loaded. Frame rate settings are unchanged.'
+    } catch { $ui.Status.Text = "ERROR: $($_.Exception.Message)" }
+})
+$ui.SafeLaunch.Add_Click({
+    try {
+        $p = Start-Game -Recovery
+        if ($null -ne $p) { $window.Close() }
+    } catch { $ui.Status.Text = "ERROR: $($_.Exception.Message)" }
+})
+
 # ---------------------------------------------------------------------------
 # Wire up events
 # ---------------------------------------------------------------------------
 
 $ui.RenderScale.Add_SelectionChanged({ Update-EffectiveDraw })
+$script:SyncingOutput = $false
+$ui.OutputResolution.Add_SelectionChanged({
+    if ($script:SyncingOutput -or $null -eq $ui.OutputResolution.SelectedItem) { return }
+    $tag = [string]$ui.OutputResolution.SelectedItem.Tag
+    if ($tag -match '^(\d+)x(\d+)$') {
+        $script:SyncingOutput = $true
+        try { $ui.WinW.Text=$matches[1]; $ui.WinH.Text=$matches[2] }
+        finally { $script:SyncingOutput=$false }
+        if ($tag -eq '1920x1080' -and (Get-RenderScale) -lt 2) {
+            $ui.RenderScale.SelectedIndex=1
+            $ui.Status.Text='1080p output selected with 2x internal rendering (1440p downsampled to 1080p).'
+        }
+    }
+})
+$ui.WinW.Add_TextChanged({ if (-not $script:SyncingOutput) { Update-OutputPreset } })
+$ui.WinH.Add_TextChanged({ if (-not $script:SyncingOutput) { Update-OutputPreset } })
 $ui.VSync.Add_Click({ Update-SpeedNote })
 $ui.Refresh.Add_SelectionChanged({ Update-SpeedNote })
 # ---------------------------------------------------------------------------
@@ -762,12 +1052,11 @@ $ui.OpenMods.Add_Click({
 })
 
 $ui.MatchWindow.Add_Click({
-    $screen = [System.Windows.SystemParameters]::PrimaryScreenWidth
-    $dpi = [System.Windows.PresentationSource]::FromVisual($window)
-    $k = 1.0
-    if ($dpi) { $k = $dpi.CompositionTarget.TransformToDevice.M11 }
-    $ui.WinW.Text = "$([int]([System.Windows.SystemParameters]::PrimaryScreenWidth * $k))"
-    $ui.WinH.Text = "$([int]([System.Windows.SystemParameters]::PrimaryScreenHeight * $k))"
+    $device = $ui.Monitor.SelectedItem.Device
+    $screen = $script:Screens | Where-Object { $_.DeviceName -eq $device } | Select-Object -First 1
+    if (-not $screen) { $screen = [System.Windows.Forms.Screen]::PrimaryScreen }
+    $ui.WinW.Text = [string]$screen.Bounds.Width
+    $ui.WinH.Text = [string]$screen.Bounds.Height
 })
 
 $ui.SaveOnly.Add_Click({
@@ -819,6 +1108,7 @@ if ($Headless -or $Preset) {
 # ---------------------------------------------------------------------------
 
 Load-CurrentConfig
+Refresh-Profiles
 Update-ModCount
 Load-ModList
 $ui.PathInfo.Text = "Exe: $($script:Exe)`nConfig: $($script:Config)`nGame files: $($script:DataRoot)"

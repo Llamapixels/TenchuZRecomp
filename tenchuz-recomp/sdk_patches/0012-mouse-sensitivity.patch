@@ -1,0 +1,29 @@
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -29,7 +29,7 @@
+                     "Use the mouse for the right stick. Off means the right stick comes "
+                     "from the keybind_rstick_* keys only");
+ REXCVAR_DEFINE_DOUBLE(mnk_sensitivity, 1.0, "Input", "Mouse sensitivity for right stick")
+-    .range(0.01, 10.0);
++    .range(0.01, 100.0);
+ 
+ REXCVAR_DEFINE_STRING(keybind_a, "Semicolon,Space", "Input/Keybinds/Controller", "A button");
+ REXCVAR_DEFINE_STRING(keybind_b, "Quote,Backspace", "Input/Keybinds/Controller", "B button");
+@@ -390,8 +390,15 @@
+   if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
+     double sensitivity = REXCVAR_GET(mnk_sensitivity);
+     constexpr double kBaseScale = 200.0;
+-    rx += static_cast<int32_t>(double(mouse_dx_) * sensitivity * kBaseScale);
+-    ry += static_cast<int32_t>(double(-mouse_dy_) * sensitivity * kBaseScale);
++    auto mouse_axis = [sensitivity](double delta) -> int32_t {
++      const double scaled = delta * sensitivity * kBaseScale;
++      if (!std::isfinite(scaled)) return 0;
++      // Clamp before converting: large accumulated deltas at high sensitivity
++      // must saturate rather than overflow the integer conversion.
++      return static_cast<int32_t>(std::clamp(scaled, double(INT16_MIN), double(INT16_MAX)));
++    };
++    rx += mouse_axis(double(mouse_dx_));
++    ry += mouse_axis(-double(mouse_dy_));
+   }
+   // Drained unconditionally: deltas keep accumulating in OnMouseMove while the
+   // mouse is off, and toggling it on would otherwise dump the whole backlog

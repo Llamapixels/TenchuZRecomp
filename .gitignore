@@ -20,6 +20,7 @@
 !/tenchuz-recomp/CMakePresets.json
 !/tenchuz-recomp/tenchuz_manifest.toml
 !/tenchuz-recomp/src/
+!/tenchuz-recomp/tests/
 !/tenchuz-recomp/sdk_patches/
 
 # Never: game-derived data, binaries, scratch files.

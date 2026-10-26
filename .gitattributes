@@ -2,3 +2,5 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+# Empty context lines in unified patches contain a required leading space.
+*.patch whitespace=-blank-at-eol

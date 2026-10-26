@@ -413,6 +413,7 @@ class TenchuzApp : public rex::ReXApp {
     // build stamp.
     if (window()) {
       window()->SetTitle(TENCHUZ_PROJECT_NAME " - v" TENCHUZ_VERSION);
+      tenchuz::display_settings::ApplyMonitor(window());
     }
     cheat_menu_ = std::make_unique<tenchuz::CheatMenuDialog>(
         drawer, runtime() ? runtime()->memory() : nullptr);
@@ -603,6 +604,14 @@ class TenchuzApp : public rex::ReXApp {
     // <exe_dir>/<name>.toml (set in ReXApp::SetupEnvironment), so its parent
     // is the executable's directory.
     exe_dir_ = paths.config_path.parent_path();
+    if (tenchuz::display_settings::safe_launch()) {
+      // Keep saved timing and input choices, with recovery CLI flags taking
+      // precedence. Redirect the SDK's F4 Save button to a disposable file too.
+      rex::cvar::LoadConfig(paths.config_path);
+      paths.config_path = exe_dir_ / "logs" /
+          ("safe-launch-" + std::to_string(GetCurrentProcessId()) + "-" +
+           std::to_string(GetTickCount64()) + ".toml");
+    }
     game_root_ = paths.game_data_root;
     if (!game_root_.empty() || paths.config_path.empty()) {
       return;  // explicit --game_data_root wins

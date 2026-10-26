@@ -1,5 +1,9 @@
 # Tenchu Z — Launcher options reference
 
+New display controls, shared graphics profiles, launcher resizing and Safe launch
+are documented in [Display options](display-options.md). Renderer selection is
+now in **F6 > Display**. Framerate controls and the 60 fps patch are unchanged.
+
 > **Update - measured:** Tenchu Z always draws a **1280x720** frame, whatever
 > `video_mode_width/height` is set to. Hooking the game's Swap (`sub_8241BF50`)
 > and reading the front-buffer size gives 1280x720 at both a 1280x720 and a
@@ -176,7 +180,7 @@ with a smaller guest mode, set both explicitly.
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
-| `gpu_backend` | string | `"d3d12"` | `"d3d12"` or `"vulkan"`. Launcher: Renderer; in game: F6 > Game > Renderer (restart to switch). If Vulkan cannot start, the game uses Direct3D 12 for that run. Shader presets need Direct3D 12. |
+| `gpu_backend` | string | `"d3d12"` | `"d3d12"` or `"vulkan"`. Launcher: Renderer; in game: F6 > Display > Renderer (restart to switch). If Vulkan cannot start, the game uses Direct3D 12 for that run. Shader presets need Direct3D 12. |
 | `vulkan_device` | int | -1 | Vulkan GPU index (-1 picks automatically); the log lists the GPUs. |
 | `clear_memory_page_state` | bool | true | At the end of each frame, mark memory the GPU wrote as valid for the CPU again. F6 > Game > "Sync GPU-written memory every frame"; applies at once. Off is Xenia's `d3d12_clear_memory_page_state = false` (Xenia's default), reported to fix black menus; slightly faster, may break effects that read back GPU output. Same setting for Direct3D 12 and Vulkan. |
 | `readback_memexport` | bool | true (template: false) | CPU readback of shader memory-export writes. Off avoids the CPU waiting for the GPU after those draws. Same as Xenia's `readback_memexport = false` that players use for this game. |

@@ -9,6 +9,11 @@ mods, cheats, a speedrun timer, a photo mode and System Link co-op over the inte
 > player name, graphics and shader presets, controller and mouse settings, camera, cheats, photo mode, the speedrun
 > timer and the info overlay. A hint at the top of the screen reminds you when the game starts.
 
+The new **F6 > Display** tab adds named graphics profiles, monitor/window choices,
+menu scaling and an experimental ultrawide 3D view. The resizable launcher shares
+these settings and offers **Safe launch** for a temporary recovery run.
+Details and current ultrawide limitations: [Display options](docs/display-options.md).
+
 > [!WARNING]
 > **This is an alpha, a preview for testers.** The hub and the first missions have been played; the rest of the game
 > hasn't been played through yet on this port, so expect bugs or crashes further on. It has only been tested on one
@@ -20,9 +25,9 @@ mods, cheats, a speedrun timer, a photo mode and System Link co-op over the inte
 > made from your own disc. This project does not include, and will not provide, game files, disc images or links to
 > them. The setup only reads the disc image you point it to; your disc image isn't changed.
 
-## Getting started (Alpha 0.1.3, Windows)
+## Getting started (Alpha 0.1.4, Windows)
 
-1. Download `TenchuZ-HoloCattRecomp-0.1.3-alpha-windows.zip` from [Releases](../../releases) and extract it to a
+1. Download `TenchuZ-HoloCattRecomp-0.1.4-alpha-windows.zip` from [Releases](../../releases) and extract it to a
    folder you can write to (not Program Files). It needs about 5 GB free for the game files.
 2. Put your Tenchu Z disc image (`.iso`) in that folder, next to `tenchuz.exe`.
 3. Double-click **`Setup Tenchu Z.cmd`**. It checks that your disc is the supported version, copies the game files
