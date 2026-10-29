@@ -62,6 +62,24 @@
 //   whose GetAnalog is sub_8228C4D0, i.e. the pad floats above. Bit 2 of
 //   player +5504 is the game's own horizontal invert, and the camera's +84
 //   flag its vertical one.
+//
+//   How the camera turns (read from the recompiled code). The update
+//   (sub_823E1F30) copies the player's right stick into +340 (x) and +344 (y,
+//   negated while +84 is 0), puts the player's position in +256, then calls a
+//   mode function from the table at 0x82AB2C78 (kept in +320). The follow
+//   camera, sub_823E38D0, used in most states:
+//     sub_823E1A20  yaw step, stored to +292. Speed = 1e-5 * min(t, 200|x|)
+//                   rad/ms, t = time the stick has been held (+360, reset when
+//                   it reads 0): about 200 ms to reach full speed. Returns the
+//                   player's heading instead while +404 bit 1 is set.
+//     sub_823E1C58  pitch step, stored to +288; the same ramp (9e-6, +364).
+//     sub_823E1E18  eases the eye (+16) and look-at point (+32) toward where
+//                   the angles put them (+224 / +240) by 1 - (1 - k)^n, n =
+//                   16 ms ticks this frame, k = 0.1-0.2 by state.
+//   Per-state limits are in the table at 0x82AB2D80 (64 bytes per state):
+//   +32 k, +36 / +40 pitch max / min, +44 / +48 yaw limits around the
+//   player's heading (both 0 = none). The first-person look mode,
+//   sub_823E22C8, ramps its own angles the same way: pitch +304, yaw +308.
 
 #pragma once
 
@@ -120,10 +138,34 @@ struct CameraInput {
   double sensitivity_y = 1.0;
   double fov_degrees = 48.0;    // the game's own value is 48
   double distance_scale = 1.0;  // multiplies the game's follow distance
+  bool mouse_direct = true;     // mouse turns the camera itself (see below)
+  double mouse_speed = 1.0;     // direct mouse look speed
 };
 inline constexpr double kGameFovDegrees = 48.0;
 CameraInput camera_input();
 void set_camera_input(const CameraInput& input);
+
+// Direct mouse look. With mouse_direct on, mouse motion is not turned into
+// right stick deflection (where the game's 200 ms speed ramp, its deadzone
+// and the stick's top speed all got in the way). The camera update instead
+// adds it to the camera's yaw and pitch, through the game's own steps so
+// every state's limits still apply, and turns the eased eye and look-at
+// point by the same angle, so the view follows the mouse in the same frame
+// while movement keeps the game's easing. Camera modes that do not turn
+// with the stick keep the mouse as a stick.
+//
+// Mouse motion for this frame, in radians, signed like the right stick
+// (x right, y up). False when there is none or the mouse is a stick.
+// Called by the camera update hook (photo_mode.cpp).
+struct MouseLook {
+  float x = 0.0f;
+  float y = 0.0f;
+};
+bool TakeMouseLook(uint8_t* base, uint32_t camera, MouseLook* look);
+// Hands `look` to the game's yaw and pitch steps for the camera update that
+// follows; EndMouseTurn after it drops whatever was not used.
+void BeginMouseTurn(uint8_t* base, uint32_t camera, const MouseLook& look);
+void EndMouseTurn();
 
 bool skip_intro_movies();
 void set_skip_intro_movies(bool enabled);

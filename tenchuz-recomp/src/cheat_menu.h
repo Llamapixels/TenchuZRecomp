@@ -559,16 +559,38 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
       rex::cvar::SetFlagByName("mnk_mouse", mouse ? "true" : "false");
       Save({"mnk_mouse"});
     }
-    float mouse_speed =
-        static_cast<float>(rex::cvar::Query<double>("mnk_sensitivity"));
-    ImGui::SetNextItemWidth(260);
-    if (ImGui::SliderFloat("Mouse speed", &mouse_speed, 0.01f, 100.0f, "%.2fx",
-                            ImGuiSliderFlags_Logarithmic)) {
-      rex::cvar::SetFlagByName("mnk_sensitivity",
-                               std::to_string(mouse_speed));
+    gameplay::CameraInput mouse_input = gameplay::camera_input();
+    if (ImGui::Checkbox("Direct mouse camera", &mouse_input.mouse_direct)) {
+      gameplay::set_camera_input(mouse_input);
+      SaveCamera();
     }
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-      Save({"mnk_sensitivity"});
+    ImGui::TextDisabled("Turns the camera by exactly the distance moved, in the "
+                        "same frame. Off: the mouse acts as a right stick "
+                        "(the game's speed ramp and deadzone apply). Smoothest "
+                        "with 60 fps on (Game tab).");
+    if (mouse_input.mouse_direct) {
+      float direct_speed = static_cast<float>(mouse_input.mouse_speed);
+      ImGui::SetNextItemWidth(260);
+      if (ImGui::SliderFloat("Mouse speed", &direct_speed, 0.05f, 20.0f,
+                             "%.2fx", ImGuiSliderFlags_Logarithmic)) {
+        mouse_input.mouse_speed = direct_speed;
+        gameplay::set_camera_input(mouse_input);
+      }
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        SaveCamera();
+      }
+    } else {
+      float mouse_speed =
+          static_cast<float>(rex::cvar::Query<double>("mnk_sensitivity"));
+      ImGui::SetNextItemWidth(260);
+      if (ImGui::SliderFloat("Mouse speed (as a stick)", &mouse_speed, 0.01f,
+                             100.0f, "%.2fx", ImGuiSliderFlags_Logarithmic)) {
+        rex::cvar::SetFlagByName("mnk_sensitivity",
+                                 std::to_string(mouse_speed));
+      }
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        Save({"mnk_sensitivity"});
+      }
     }
     ImGui::EndDisabled();
     ImGui::TextDisabled("Mouse look pauses while this menu is open. F9 "
@@ -581,7 +603,8 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
 
   void SaveCamera() {
     Save({"camera_invert_x", "camera_invert_y", "camera_sensitivity_x",
-          "camera_sensitivity_y", "camera_fov", "camera_distance"});
+          "camera_sensitivity_y", "camera_fov", "camera_distance",
+          "camera_mouse_direct", "camera_mouse_speed"});
   }
 
   // ---------------------------------------------------------------------

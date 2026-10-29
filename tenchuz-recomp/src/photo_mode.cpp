@@ -14,6 +14,7 @@
 #include <rex/logging.h>
 
 #include "controller.h"
+#include "gameplay.h"
 
 REX_EXTERN(__imp__sub_823E1F30);
 
@@ -52,7 +53,7 @@ void Direction(float yaw, float pitch, float out[3]) {
   out[2] = std::cos(pitch) * std::cos(yaw);
 }
 
-void Update(uint8_t* camera) {
+void Update(uint8_t* camera, const gameplay::MouseLook& mouse) {
   if (!g_state.initialised) {
     // Start exactly where the game's camera is looking.
     float target[3];
@@ -93,8 +94,8 @@ void Update(uint8_t* camera) {
   if (pad.buttons & 0x0200) speed *= 4.0f;   // RB
   if (pad.buttons & 0x0100) speed *= 0.25f;  // LB
 
-  g_state.yaw += pad.rx * kLookSpeed;
-  g_state.pitch = std::clamp(g_state.pitch + pad.ry * kLookSpeed,
+  g_state.yaw += pad.rx * kLookSpeed + mouse.x;
+  g_state.pitch = std::clamp(g_state.pitch + pad.ry * kLookSpeed + mouse.y,
                              -kMaxPitch, kMaxPitch);
 
   float forward[3];
@@ -124,12 +125,22 @@ void set_active(bool on) {
 
 }  // namespace tenchuz::photo_mode
 
+// Also where direct mouse look (gameplay.h) reaches the game's camera: this
+// frame's mouse motion goes to the game's yaw and pitch steps, or to the free
+// camera while photo mode flies.
 REX_HOOK_RAW(sub_823E1F30) {
   const uint32_t camera = ctx.r3.u32;
-  __imp__sub_823E1F30(ctx, base);
+  namespace gp = tenchuz::gameplay;
   namespace pm = tenchuz::photo_mode;
+  gp::MouseLook mouse;
+  const bool moved = gp::TakeMouseLook(base, camera, &mouse);
+  if (moved && !pm::active()) {
+    gp::BeginMouseTurn(base, camera, mouse);
+  }
+  __imp__sub_823E1F30(ctx, base);
+  gp::EndMouseTurn();
   if (pm::active()) {
-    pm::Update(base + camera);
+    pm::Update(base + camera, moved ? mouse : gp::MouseLook{});
   } else {
     pm::g_state.initialised = false;
   }
