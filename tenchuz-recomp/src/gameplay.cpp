@@ -29,6 +29,7 @@
 
 #include <rex/cvar.h>
 #include <rex/hook.h>
+#include <rex/input/mnk/mnk_input_driver.h>
 #include <rex/logging.h>
 #include <rex/system/xmemory.h>
 
@@ -57,6 +58,12 @@ REXCVAR_DEFINE_DOUBLE(camera_fov, 48.0, "Tenchu Z",
 REXCVAR_DEFINE_DOUBLE(camera_distance, 1.0, "Tenchu Z",
                       "Camera follow distance multiplier (game default 1)")
     .range(0.5, 2.5);
+REXCVAR_DEFINE_BOOL(camera_mouse_direct, true, "Tenchu Z",
+                    "Mouse look turns the camera by exactly the distance moved "
+                    "(off: the mouse acts as a right stick)");
+REXCVAR_DEFINE_DOUBLE(camera_mouse_speed, 1.0, "Tenchu Z",
+                      "Direct mouse look speed")
+    .range(0.05, 20.0);
 REXCVAR_DEFINE_DOUBLE(player_damage_taken, 1.0, "Tenchu Z",
                       "Damage the local player takes (0 = none, 3 = triple)")
     .range(0.0, 3.0);
@@ -83,6 +90,10 @@ REX_EXTERN(__imp__sub_823E3830);
 REX_EXTERN(__imp__sub_82410408);
 REX_EXTERN(__imp__sub_8229EDE0);
 REX_EXTERN(__imp__sub_82342500);
+REX_EXTERN(__imp__sub_823E1A20);
+REX_EXTERN(__imp__sub_823E1C58);
+REX_EXTERN(__imp__sub_823E1E18);
+REX_EXTERN(__imp__sub_823E22C8);
 
 namespace tenchuz::gameplay {
 namespace {
@@ -111,6 +122,47 @@ constexpr uint32_t kCameraPointer = 0x8340BCF4u;
 constexpr uint32_t kCameraVtable = 0x821DB970u;
 constexpr uint32_t kCameraFov = 64;
 constexpr uint32_t kCameraProjectionDirty = 72;
+
+// Camera fields used by direct mouse look (gameplay.h).
+constexpr uint32_t kCameraEye = 16;
+constexpr uint32_t kCameraLookAt = 32;
+constexpr uint32_t kCameraInvertY = 84;  // the game's vertical invert; 0 = off
+constexpr uint32_t kCameraFollowPoint = 256;  // the player's position
+constexpr uint32_t kCameraPitch = 288;
+constexpr uint32_t kCameraYaw = 292;
+constexpr uint32_t kCameraLookPitch = 304;  // first-person look mode
+constexpr uint32_t kCameraLookYaw = 308;
+constexpr uint32_t kCameraMode = 320;
+constexpr uint32_t kCameraYawRamp = 360;
+constexpr uint32_t kCameraPitchRamp = 364;
+
+// Camera modes (functions from the table at 0x82AB2C78) that turn with the
+// right stick through the yaw / pitch steps, or (kLookMode) by its own angles.
+constexpr uint32_t kFollowMode = 0x823E38D0u;
+constexpr uint32_t kLookMode = 0x823E22C8u;
+constexpr uint32_t kDirectMouseModes[] = {kFollowMode, kLookMode, 0x823E3D58u,
+                                          0x823E3FC8u};
+
+// Player characters, the list the game's own local-player lookup walks.
+constexpr uint32_t kPlayerSlots = 0x82B58A58u;
+constexpr uint32_t kPlayerSlotCount = 4;
+constexpr uint32_t kOffsetPlayerOptions = 5504;
+constexpr uint32_t kInvertXOption = 0x2;  // the game's horizontal invert
+
+// Direct mouse look turn per physical pixel (counts, under pointer lock) at
+// speed 1: 0.07 degrees, 360 degrees for about 5000 counts.
+constexpr double kMouseRadiansPerPixel = 0.0012;
+
+// This frame's mouse turn, from BeginMouseTurn to EndMouseTurn. The camera
+// update runs on one guest thread, so no lock.
+struct MouseTurn {
+  uint32_t camera = 0;
+  float yaw = 0, pitch = 0;  // still to apply, in the game's yaw / pitch sense
+  float turned_yaw = 0, turned_pitch = 0;  // applied, after the game's limits
+};
+MouseTurn g_mouse_turn;
+// Whether the camera took the mouse motion since the last controller read.
+std::atomic<bool> g_mouse_taken{false};
 
 // The field of view the current camera mode asked for (SetFov), before
 // scaling, and the factor last written into the live camera.
@@ -270,6 +322,8 @@ CameraInput camera_input() {
   input.sensitivity_y = LoadFlag(REXCVAR_GET(camera_sensitivity_y));
   input.fov_degrees = LoadFlag(REXCVAR_GET(camera_fov));
   input.distance_scale = LoadFlag(REXCVAR_GET(camera_distance));
+  input.mouse_direct = LoadFlag(REXCVAR_GET(camera_mouse_direct));
+  input.mouse_speed = LoadFlag(REXCVAR_GET(camera_mouse_speed));
   return input;
 }
 
@@ -282,6 +336,8 @@ void set_camera_input(const CameraInput& input) {
   StoreFlag(REXCVAR_GET(camera_sensitivity_y), input.sensitivity_y);
   StoreFlag(REXCVAR_GET(camera_fov), input.fov_degrees);
   StoreFlag(REXCVAR_GET(camera_distance), input.distance_scale);
+  StoreFlag(REXCVAR_GET(camera_mouse_direct), input.mouse_direct);
+  StoreFlag(REXCVAR_GET(camera_mouse_speed), input.mouse_speed);
 }
 
 bool skip_intro_movies() { return LoadFlag(REXCVAR_GET(skip_intro_movies)); }
@@ -766,13 +822,268 @@ void ApplyFovSetting(uint8_t* base, const CameraInput& input) {
   g_applied_aspect = aspect;
 }
 
+// --- Direct mouse look (gameplay.h) ------------------------------------------
+
+float WrapAngle(double a) {
+  constexpr double kTwoPi = 6.283185307179586;
+  a = std::remainder(a, kTwoPi);
+  return static_cast<float>(a);
+}
+
+void LoadVec3(const uint8_t* p, float v[3]) {
+  for (int i = 0; i < 3; ++i) {
+    v[i] = LoadBeFloat(p + i * 4);
+  }
+}
+
+void StoreVec3(uint8_t* p, const float v[3]) {
+  for (int i = 0; i < 3; ++i) {
+    StoreBeFloat(p + i * 4, v[i]);
+  }
+}
+
+// The rows of the game's yaw matrix (sub_82273E90), which it applies to a
+// camera-space offset as offset * M.
+void YawRows(float yaw, float m[3][3]) {
+  const float c = std::cos(yaw), s = std::sin(yaw);
+  const float rows[3][3] = {{c, 0, -s}, {0, 1, 0}, {s, 0, c}};
+  std::memcpy(m, rows, sizeof(rows));
+}
+
+// The rows of the game's pitch matrix (sub_822CA550, used by the eye
+// placement sub_823E3830), applied the same way.
+void PitchRows(float pitch, float m[3][3]) {
+  const float c = std::cos(pitch), s = std::sin(pitch);
+  const float rows[3][3] = {{1, 0, 0}, {0, c, s}, {0, -s, c}};
+  std::memcpy(m, rows, sizeof(rows));
+}
+
+// out = v * M
+void TimesRows(const float v[3], const float m[3][3], float out[3]) {
+  float r[3];
+  for (int i = 0; i < 3; ++i) {
+    r[i] = v[0] * m[0][i] + v[1] * m[1][i] + v[2] * m[2][i];
+  }
+  std::memcpy(out, r, sizeof(r));
+}
+
+// The locally controlled player character, from the game's player list.
+uint32_t LocalPlayerObject(const uint8_t* base) {
+  for (uint32_t i = 0; i < kPlayerSlotCount; ++i) {
+    const uint32_t object = LoadBeU32(base + kPlayerSlots + i * 4);
+    if (object != 0 && IsLocalPlayer(base + object)) {
+      return object;
+    }
+  }
+  return 0;
+}
+
+// Whether the active camera turns with the mouse directly this frame: on, and
+// in a mode that turns with the stick.
+bool DirectMouseCamera(const uint8_t* base) {
+  if (!LoadFlag(REXCVAR_GET(camera_mouse_direct))) {
+    return false;
+  }
+  const uint32_t camera = LoadBeU32(base + kCameraPointer);
+  if (camera == 0 || LoadBeU32(base + camera) != kCameraVtable) {
+    return false;
+  }
+  const uint32_t mode = LoadBeU32(base + camera + kCameraMode);
+  return std::find(std::begin(kDirectMouseModes), std::end(kDirectMouseModes),
+                   mode) != std::end(kDirectMouseModes);
+}
+
+// Before the game reads the controllers: the mouse is a stick this frame
+// unless the camera turns with it directly. Motion the camera did not take
+// since the last read (menus, movies, a stick mode) is dropped, so it never
+// arrives later as a jump.
+void PrepareMouseForFrame(const uint8_t* base) {
+  rex::input::mnk::SetMouseStickEnabled(!DirectMouseCamera(base));
+  if (!g_mouse_taken.exchange(false, std::memory_order_relaxed)) {
+    float dx, dy;
+    rex::input::mnk::TakeMouseDelta(&dx, &dy);
+  }
+}
+
+// Turns the eased eye and look-at point by this frame's mouse turn, just
+// before the game eases them toward where the new angles put them. Turning
+// both the same way as their targets keeps the easing (which is linear) from
+// lagging behind the turn, while movement is eased as before.
+//   yaw:   around the vertical through the player, as the yaw matrix turns
+//          the camera's offsets;
+//   pitch: the eye around the look-at point, about the camera's sideways
+//          axis, as the eye placement does.
+void TurnEasedView(uint8_t* camera, float yaw_turn, float pitch_turn) {
+  float pivot[3], eye[3], look[3];
+  LoadVec3(camera + kCameraFollowPoint, pivot);
+  LoadVec3(camera + kCameraEye, eye);
+  LoadVec3(camera + kCameraLookAt, look);
+  if (yaw_turn != 0.0f) {
+    float m[3][3];
+    YawRows(yaw_turn, m);
+    for (float* p : {eye, look}) {
+      float d[3] = {p[0] - pivot[0], p[1] - pivot[1], p[2] - pivot[2]};
+      TimesRows(d, m, d);
+      for (int i = 0; i < 3; ++i) {
+        p[i] = pivot[i] + d[i];
+      }
+    }
+  }
+  if (pitch_turn != 0.0f) {
+    float yaw_m[3][3], pitch_m[3][3];
+    YawRows(LoadBeFloat(camera + kCameraYaw), yaw_m);  // already this frame's
+    PitchRows(pitch_turn, pitch_m);
+    const float d[3] = {eye[0] - look[0], eye[1] - look[1], eye[2] - look[2]};
+    // Into camera space (d * M^T), turn, and back out (* M).
+    float local[3];
+    for (int i = 0; i < 3; ++i) {
+      local[i] = d[0] * yaw_m[i][0] + d[1] * yaw_m[i][1] + d[2] * yaw_m[i][2];
+    }
+    TimesRows(local, pitch_m, local);
+    float turned[3];
+    TimesRows(local, yaw_m, turned);
+    for (int i = 0; i < 3; ++i) {
+      eye[i] = look[i] + turned[i];
+    }
+  }
+  StoreVec3(camera + kCameraEye, eye);
+  StoreVec3(camera + kCameraLookAt, look);
+}
+
 }  // namespace
+
+bool TakeMouseLook(uint8_t* base, uint32_t camera, MouseLook* look) {
+  if (rex::input::mnk::IsMouseStickEnabled() ||
+      camera != LoadBeU32(base + kCameraPointer)) {
+    return false;
+  }
+  g_mouse_taken.store(true, std::memory_order_relaxed);
+  float dx, dy;
+  if (!rex::input::mnk::TakeMouseDelta(&dx, &dy)) {
+    return false;
+  }
+  const double k = kMouseRadiansPerPixel * LoadFlag(REXCVAR_GET(camera_mouse_speed));
+  // Mouse right is stick right; screen y grows downward, the stick's upward.
+  look->x = static_cast<float>(dx * k);
+  look->y = static_cast<float>(-dy * k);
+  return std::isfinite(look->x) && std::isfinite(look->y);
+}
+
+void BeginMouseTurn(uint8_t* base, uint32_t camera, const MouseLook& look) {
+  const CameraInput input = camera_input();
+  float x = input.invert_x ? -look.x : look.x;
+  float y = input.invert_y ? -look.y : look.y;
+  // The game's own invert options, applied where the stick passes them: the
+  // player's input update (sub_82342DB8) flips x on its way to +4740, and the
+  // camera update flips y into +344 while its +84 is 0. The yaw and pitch
+  // steps then add +340 / +344.
+  const uint32_t player = LocalPlayerObject(base);
+  if (player != 0 &&
+      (LoadBeU32(base + player + kOffsetPlayerOptions) & kInvertXOption)) {
+    x = -x;
+  }
+  if (LoadBeU32(base + camera + kCameraInvertY) == 0) {
+    y = -y;
+  }
+  g_mouse_turn = {camera, x, y, 0.0f, 0.0f};
+}
+
+void EndMouseTurn() { g_mouse_turn = {}; }
+
 }  // namespace tenchuz::gameplay
 
-// Controller update, once per frame. After the game has normalised the
-// sticks, scale the right stick of every pad (or replace it while the camera
-// probe is driving), then apply the camera's field of view and distance.
+// Follow camera yaw step (r3 = camera, new yaw returned in f1). With a mouse
+// turn pending, the step runs twice, without and with the turn added to the
+// yaw: the difference is the turn after the game's own rules (yaw held
+// behind the player, limits while hanging from a ledge), which the easing
+// hook below needs. The stick's speed ramp is put back between the runs.
+REX_HOOK_RAW(sub_823E1A20) {
+  namespace gp = tenchuz::gameplay;
+  gp::MouseTurn& turn = gp::g_mouse_turn;
+  if (turn.camera != ctx.r3.u32 || turn.yaw == 0.0f) {
+    __imp__sub_823E1A20(ctx, base);
+    return;
+  }
+  uint8_t* c = base + turn.camera;
+  const float yaw = gp::LoadBeFloat(c + gp::kCameraYaw);
+  const float ramp = gp::LoadBeFloat(c + gp::kCameraYawRamp);
+  __imp__sub_823E1A20(ctx, base);
+  const double without = ctx.f1.f64;
+  ctx.r3.u64 = turn.camera;
+  gp::StoreBeFloat(c + gp::kCameraYawRamp, ramp);
+  gp::StoreBeFloat(c + gp::kCameraYaw, yaw + turn.yaw);
+  __imp__sub_823E1A20(ctx, base);
+  gp::StoreBeFloat(c + gp::kCameraYaw, yaw);  // the caller stores the result
+  turn.turned_yaw = gp::WrapAngle(ctx.f1.f64 - without);
+  turn.yaw = 0.0f;
+}
+
+// Follow camera pitch step (r3 = camera, new pitch in f1); as the yaw step.
+// Its other inputs (the recentre button, the state) are plain reads.
+REX_HOOK_RAW(sub_823E1C58) {
+  namespace gp = tenchuz::gameplay;
+  gp::MouseTurn& turn = gp::g_mouse_turn;
+  if (turn.camera != ctx.r3.u32 || turn.pitch == 0.0f) {
+    __imp__sub_823E1C58(ctx, base);
+    return;
+  }
+  uint8_t* c = base + turn.camera;
+  const float pitch = gp::LoadBeFloat(c + gp::kCameraPitch);
+  const float ramp = gp::LoadBeFloat(c + gp::kCameraPitchRamp);
+  __imp__sub_823E1C58(ctx, base);
+  const double without = ctx.f1.f64;
+  ctx.r3.u64 = turn.camera;
+  gp::StoreBeFloat(c + gp::kCameraPitchRamp, ramp);
+  gp::StoreBeFloat(c + gp::kCameraPitch, pitch + turn.pitch);
+  __imp__sub_823E1C58(ctx, base);
+  gp::StoreBeFloat(c + gp::kCameraPitch, pitch);
+  turn.turned_pitch = gp::WrapAngle(ctx.f1.f64 - without);
+  turn.pitch = 0.0f;
+}
+
+// Eases a camera's eye (r4) and look-at point (r5) toward v1 / v2. The
+// follow camera calls it for its view after the yaw and pitch steps.
+REX_HOOK_RAW(sub_823E1E18) {
+  namespace gp = tenchuz::gameplay;
+  gp::MouseTurn& turn = gp::g_mouse_turn;
+  const uint32_t camera = ctx.r3.u32;
+  if (turn.camera == camera && ctx.r4.u32 == camera + gp::kCameraEye &&
+      ctx.r5.u32 == camera + gp::kCameraLookAt &&
+      (turn.turned_yaw != 0.0f || turn.turned_pitch != 0.0f)) {
+    gp::TurnEasedView(base + camera, turn.turned_yaw, turn.turned_pitch);
+    turn.turned_yaw = 0.0f;
+    turn.turned_pitch = 0.0f;
+  }
+  __imp__sub_823E1E18(ctx, base);
+}
+
+// First-person look mode: its own angles, which the mouse turn is added to
+// before the game's step applies their limits. The view is placed without
+// easing in a frame the mouse moved (+404 bit 0, the game's own "cut").
+REX_HOOK_RAW(sub_823E22C8) {
+  namespace gp = tenchuz::gameplay;
+  gp::MouseTurn& turn = gp::g_mouse_turn;
+  if (turn.camera == ctx.r3.u32 && (turn.yaw != 0.0f || turn.pitch != 0.0f)) {
+    uint8_t* c = base + turn.camera;
+    gp::StoreBeFloat(c + gp::kCameraLookYaw,
+                     gp::LoadBeFloat(c + gp::kCameraLookYaw) + turn.yaw);
+    gp::StoreBeFloat(c + gp::kCameraLookPitch,
+                     gp::LoadBeFloat(c + gp::kCameraLookPitch) + turn.pitch);
+    constexpr uint32_t kCameraFlags = 404;
+    gp::StoreBeU32(c + kCameraFlags, gp::LoadBeU32(c + kCameraFlags) | 1u);
+    turn.yaw = 0.0f;
+    turn.pitch = 0.0f;
+  }
+  __imp__sub_823E22C8(ctx, base);
+}
+
+// Controller update, once per frame. Before the game reads the controllers,
+// choose whether the mouse is a stick this frame (direct mouse look). After
+// the game has normalised the sticks, scale the right stick of every pad (or
+// replace it while the camera probe is driving), then apply the camera's
+// field of view and distance.
 REX_HOOK_RAW(sub_8228C7D8) {
+  tenchuz::gameplay::PrepareMouseForFrame(base);
   __imp__sub_8228C7D8(ctx, base);
 
   namespace gp = tenchuz::gameplay;

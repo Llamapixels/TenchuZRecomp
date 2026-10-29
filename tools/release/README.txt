@@ -19,6 +19,8 @@ Alpha 0.1.4: F6 > Display adds graphics profiles, monitor/window choices,
 menu size and experimental ultrawide with HUD size/position controls.
 The launcher is resizable and includes 1080p output presets and Safe launch.
 Mouse sensitivity: 0.01x to 100x in F6 > Camera and in the launcher.
+Direct mouse camera: the mouse turns the camera by exactly the distance
+moved, without the stick's delay (F6 > Camera; smoothest with 60 fps on).
 1080p output uses 2x internal rendering (1440p downsampled to 1080p).
 Built-in shader presets are included; user-installed mods are not bundled.
 

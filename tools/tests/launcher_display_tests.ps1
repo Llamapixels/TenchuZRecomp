@@ -42,6 +42,15 @@ $badSensitivity=$false
 try { [void](Build-Values) } catch { $badSensitivity=$true }
 Assert $badSensitivity 'out-of-range sensitivity rejected'
 $ui.MouseSensitivity.Text='3.01'
+Assert ($ui.MouseDirect.IsChecked -eq $true) 'direct mouse camera defaults on'
+Assert ($ui.MouseSpeed.Text -eq '1.0') 'direct mouse speed defaults to 1.0'
+$ui.MouseSpeed.Text='20.0'
+Assert ((Build-Values).camera_mouse_speed -eq 20.0) 'direct mouse speed accepted'
+$ui.MouseSpeed.Text='21.0'
+$badSpeed=$false
+try { [void](Build-Values) } catch { $badSpeed=$true }
+Assert $badSpeed 'out-of-range direct mouse speed rejected'
+$ui.MouseSpeed.Text='1.0'
 $oldWidth=$ui.WinW.Text; $oldHeight=$ui.WinH.Text; $oldScale=$ui.RenderScale.SelectedIndex
 $ui.RenderScale.SelectedIndex=0
 $ui.OutputResolution.SelectedIndex=2

@@ -127,6 +127,8 @@ $script:ManagedKeys = @(
     'skip_intro_movies',
     'mnk_mouse',
     'mnk_sensitivity',
+    'camera_mouse_direct',
+    'camera_mouse_speed',
     'dump_shaders',
     'gpu_backend',
     'frame_rate_60',
@@ -540,8 +542,13 @@ Add-Type -AssemblyName WindowsBase
         <CheckBox x:Name="FreeShop" Content="Free shop purchases"/>
         <CheckBox x:Name="SkipIntro" Content="Skip intro movies (logos and opening)"/>
         <CheckBox x:Name="MouseLook" Content="Mouse look (keyboard &amp; mouse players)"/>
+        <CheckBox x:Name="MouseDirect" Content="Direct mouse camera (turns by exactly the distance moved)" Margin="0,2,0,0"/>
+        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+          <TextBlock Text="Mouse speed (0.05-20x):" Margin="0,0,8,0"/>
+          <TextBox x:Name="MouseSpeed" Width="85" Text="1.0"/>
+        </StackPanel>
         <StackPanel Orientation="Horizontal" Margin="0,2,0,6">
-          <TextBlock Text="Mouse sensitivity (0.01-100x):" Margin="0,0,8,0"/>
+          <TextBlock Text="Mouse as a stick, sensitivity (0.01-100x):" Margin="0,0,8,0"/>
           <TextBox x:Name="MouseSensitivity" Width="85" Text="1.0"/>
         </StackPanel>
         <CheckBox x:Name="DumpShaders" Content="Dump shaders for shader modding (to shader_dump\ next to the game)"/>
@@ -594,7 +601,8 @@ foreach ($name in @('RenderScale','EffectiveDraw',
                     'WinW','WinH','OutputResolution','MatchWindow','DisplayMode','Refresh','VSync',
                     'AllowTearing','SaveOnly','Launch','Status','PathInfo','SpeedNote',
                     'GodMode','FreeShop','ModsEnabled','OpenMods','ModCount',
-                    'SkipIntro','MouseLook','MouseSensitivity','ModList','ModUp','ModDown','ModRefresh',
+                    'SkipIntro','MouseLook','MouseDirect','MouseSpeed','MouseSensitivity',
+                    'ModList','ModUp','ModDown','ModRefresh',
                     'DumpShaders','Renderer','Fps60','GraphicsProfile','SaveProfile','LoadProfile',
                     'Monitor','Widescreen','MenuScale','CameraFov','CameraDistance',
                     'SafeLaunch','ContentScroll','ContentScale')) {
@@ -689,6 +697,8 @@ function Load-CurrentConfig {
     $ui.ModsEnabled.IsChecked = ($vals['mods_enabled'] -ne 'false')
     $ui.SkipIntro.IsChecked   = ($vals['skip_intro_movies'] -eq 'true')
     $ui.MouseLook.IsChecked   = ($vals['mnk_mouse'] -eq 'true')
+    $ui.MouseDirect.IsChecked = ($vals['camera_mouse_direct'] -ne 'false')
+    $ui.MouseSpeed.Text       = $(if ($vals.ContainsKey('camera_mouse_speed')) { $vals['camera_mouse_speed'] } else { '1.0' })
     $ui.MouseSensitivity.Text = $(if ($vals.ContainsKey('mnk_sensitivity')) { $vals['mnk_sensitivity'] } else { '1.0' })
     $ui.DumpShaders.IsChecked = ($vals.ContainsKey('dump_shaders') -and $vals['dump_shaders'] -notmatch '^""?$')
 
@@ -789,6 +799,8 @@ function Build-Values {
         skip_intro_movies         = [bool]$ui.SkipIntro.IsChecked
         mnk_mouse                 = [bool]$ui.MouseLook.IsChecked
         mnk_sensitivity           = Read-Number $ui.MouseSensitivity.Text 0.01 100 'Mouse sensitivity'
+        camera_mouse_direct       = [bool]$ui.MouseDirect.IsChecked
+        camera_mouse_speed        = Read-Number $ui.MouseSpeed.Text 0.05 20 'Mouse speed'
         # A path turns dumping on; $null removes the key (runtime default: off).
         dump_shaders              = $(if ($ui.DumpShaders.IsChecked) { Join-Path $script:ExeDir 'shader_dump' } else { $null })
         gpu_backend               = $(if ($ui.Renderer.SelectedIndex -eq 1) { 'vulkan' } else { 'd3d12' })

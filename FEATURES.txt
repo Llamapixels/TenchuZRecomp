@@ -61,6 +61,11 @@ CAMERA  (F6 > Camera)
          controller slots. Stick diagnostics in the Camera tab.
   [ok]   Mouse look for keyboard & mouse players, mouse speed. The mouse
          is released while the F6 menu is open; F9 pauses it.
+  [ok]   Direct mouse camera (on by default): the mouse turns the camera
+         by exactly the distance moved, in the same frame, with no stick
+         speed ramp, deadzone or easing lag; the game's angle limits still
+         apply. Follow camera, first-person look and photo mode. Off: the
+         mouse acts as a right stick, as before. Smoothest with 60 fps on.
 
 
 CONTROLLER  (F6 > Controller)

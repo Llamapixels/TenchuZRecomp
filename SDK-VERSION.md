@@ -15,6 +15,20 @@ Patch `0012-mouse-sensitivity.patch` extends `mnk_sensitivity` to 0.01–100x
 and clamps mouse deltas before integer conversion to avoid overflow at high
 sensitivity. F6 and the launcher expose the same range. No timing code changes.
 
+## SDK patch 13: direct mouse look (2026-10-28)
+
+Saved as `tenchuz-recomp/sdk_patches/0013-direct-mouse.patch` (apply after
+patch 12; `include/rex/input/mnk/mnk_input_driver.h`,
+`src/input/mnk/mnk_input_driver.cpp`). New exports in `rex::input::mnk`:
+`SetMouseStickEnabled(bool)` / `IsMouseStickEnabled()` and
+`TakeMouseDelta(float*, float*)`. While the mouse stick is off, mouse motion
+made while mouse look holds the pointer collects for `TakeMouseDelta`
+instead of becoming right stick deflection. The game switches it per frame
+(`camera_mouse_direct`, `tenchuz-recomp/src/gameplay.cpp`): off while the
+active camera turns with the stick, on everywhere else, so menus and other
+camera modes keep the stick behaviour. Patch 12's stick path is unchanged
+when the mouse stick is on.
+
 ## Pinned SDK
 
 - **Repository**: https://github.com/rexglue/rexglue-sdk

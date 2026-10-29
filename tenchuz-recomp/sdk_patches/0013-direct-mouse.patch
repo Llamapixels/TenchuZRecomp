@@ -1,0 +1,124 @@
+diff --git a/include/rex/input/mnk/mnk_input_driver.h b/include/rex/input/mnk/mnk_input_driver.h
+--- a/include/rex/input/mnk/mnk_input_driver.h
++++ b/include/rex/input/mnk/mnk_input_driver.h
+@@ -25,6 +25,16 @@ namespace rex::input::mnk {
+ void SetMouseLookActive(bool active);
+ bool IsMouseLookActive();
+ 
++// TENCHUZ: direct mouse look. While the mouse stick is off, mouse motion no
++// longer becomes right stick deflection; it collects for TakeMouseDelta
++// instead, so the game can turn its camera by exactly the distance moved.
++void SetMouseStickEnabled(bool enabled);
++bool IsMouseStickEnabled();
++// Mouse motion (physical pixels, x right, y down) collected while the mouse
++// stick is off and mouse look holds the pointer, since the previous call.
++// Returns false when there was none.
++bool TakeMouseDelta(float* dx, float* dy);
++
+ class MnkInputDriver final : public InputDriver,
+                              public rex::ui::WindowInputListener,
+                              public rex::ui::WindowListener {
+diff --git a/src/input/mnk/mnk_input_driver.cpp b/src/input/mnk/mnk_input_driver.cpp
+--- a/src/input/mnk/mnk_input_driver.cpp
++++ b/src/input/mnk/mnk_input_driver.cpp
+@@ -175,6 +175,13 @@ void CollectChords(std::string_view value, ChordSet& chords) {
+ 
+ std::atomic<bool> mouse_look_active{true};
+ 
++// TENCHUZ: direct mouse look (see the header). Filled on the UI thread,
++// drained on the guest thread.
++std::atomic<bool> mouse_stick_enabled{true};
++std::mutex direct_mouse_mutex;
++float direct_mouse_dx = 0.0f;
++float direct_mouse_dy = 0.0f;
++
+ }  // namespace
+ 
+ void SetMouseLookActive(bool active) {
+@@ -185,6 +192,23 @@ bool IsMouseLookActive() {
+   return mouse_look_active.load(std::memory_order_relaxed);
+ }
+ 
++void SetMouseStickEnabled(bool enabled) {
++  mouse_stick_enabled.store(enabled, std::memory_order_relaxed);
++}
++
++bool IsMouseStickEnabled() {
++  return mouse_stick_enabled.load(std::memory_order_relaxed);
++}
++
++bool TakeMouseDelta(float* dx, float* dy) {
++  std::lock_guard lock(direct_mouse_mutex);
++  *dx = direct_mouse_dx;
++  *dy = direct_mouse_dy;
++  direct_mouse_dx = 0.0f;
++  direct_mouse_dy = 0.0f;
++  return *dx != 0.0f || *dy != 0.0f;
++}
++
+ using rex::ui::VirtualKey;
+ 
+ MnkInputDriver::MnkInputDriver(rex::ui::Window* window, size_t window_z_order)
+@@ -387,7 +411,7 @@ X_RESULT MnkInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
+   if (IsBindPressed(key_down_, REXCVAR_GET(keybind_rstick_down), chords))
+     ry -= INT16_MAX;
+ 
+-  if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive()) {
++  if (REXCVAR_GET(mnk_mouse) && IsMouseLookActive() && IsMouseStickEnabled()) {
+     double sensitivity = REXCVAR_GET(mnk_sensitivity);
+     constexpr double kBaseScale = 200.0;
+     auto mouse_axis = [sensitivity](double delta) -> int32_t {
+@@ -499,6 +523,11 @@ void MnkInputDriver::ApplyMouseCaptureFromUIThread() {
+     REXLOG_WARN("Pointer lock unavailable, mouse look falls back to recentering the cursor");
+   }
+   // Reset deltas to avoid a spike on capture start
++  {
++    std::lock_guard direct_lock(direct_mouse_mutex);
++    direct_mouse_dx = 0.0f;
++    direct_mouse_dy = 0.0f;
++  }
+   std::lock_guard lock(state_mutex_);
+   mouse_dx_ = 0.0f;
+   mouse_dy_ = 0.0f;
+@@ -602,16 +631,21 @@ void MnkInputDriver::OnMouseMove(rex::ui::MouseEvent& e) {
+     return;
+   int32_t x = e.x();
+   int32_t y = e.y();
++  // The pointer is locked in relative mode, so the absolute position no
++  // longer moves there.
++  const float dx = relative_mouse_mode_ ? e.dx() : float(x - prev_mouse_x_);
++  const float dy = relative_mouse_mode_ ? e.dy() : float(y - prev_mouse_y_);
+   {
+     std::lock_guard lock(state_mutex_);
+-    if (relative_mouse_mode_) {
+-      // The pointer is locked, so the absolute position no longer moves.
+-      mouse_dx_ += e.dx();
+-      mouse_dy_ += e.dy();
+-    } else {
+-      mouse_dx_ += float(x - prev_mouse_x_);
+-      mouse_dy_ += float(y - prev_mouse_y_);
+-    }
++    mouse_dx_ += dx;
++    mouse_dy_ += dy;
++  }
++  // Only motion made while mouse look holds the pointer turns the camera, so
++  // pointing at a menu never does.
++  if (mouse_captured_ && !IsMouseStickEnabled()) {
++    std::lock_guard lock(direct_mouse_mutex);
++    direct_mouse_dx += dx;
++    direct_mouse_dy += dy;
+   }
+   prev_mouse_x_ = x;
+   prev_mouse_y_ = y;
+@@ -632,6 +666,11 @@ void MnkInputDriver::OnLostFocus(rex::ui::UISetupEvent&) {
+     mouse_dx_ = 0.0f;
+     mouse_dy_ = 0.0f;
+   }
++  {
++    std::lock_guard lock(direct_mouse_mutex);
++    direct_mouse_dx = 0.0f;
++    direct_mouse_dy = 0.0f;
++  }
+   if (attached_window_) {
+     ReleaseMouseCaptureFromUIThread(attached_window_);
+   }

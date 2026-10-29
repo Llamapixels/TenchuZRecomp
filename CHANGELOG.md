@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Direct mouse camera**: mouse look now turns the camera by exactly the distance moved, in the same frame. It used
+  to act as a right stick, so every movement went through the game's 200 ms camera speed ramp, its stick deadzone and
+  top speed, and the camera's easing, which felt like input delay at any sensitivity. The mouse turn now goes through
+  the game's own yaw and pitch steps (so every state's limits still apply) and turns the eased view with it; movement
+  is eased as before. On by default: F6 > Camera > Direct mouse camera and Mouse speed, also in the launcher. Off
+  gives the old stick behaviour. Smoothest with 60 fps (experimental) on. Needs SDK patch 0013.
+
 ## 0.1.4-alpha
 
 - Mouse sensitivity now supports 0.01–100x in F6 > Camera and the launcher.
