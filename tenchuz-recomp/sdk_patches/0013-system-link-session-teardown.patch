@@ -1,0 +1,155 @@
+--- a/src/kernel/xam/xam_net.cpp
++++ b/src/kernel/xam/xam_net.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <cerrno>
+ #include <cstring>
+ #include <chrono>
+ #include <map>
+@@ -74,6 +75,10 @@
+                       "This machine's internet IPv4 address, given to players on other "
+                       "networks (the game sets it after opening the router's ports with "
+                       "UPnP; set it yourself after forwarding the ports by hand)");
++REXCVAR_DEFINE_BOOL(net_unregister_drops_tcp, true, "Network",
++                    "When the title unregisters a session key (the host ending a System "
++                    "Link session), shut down its open TCP connections the way a console "
++                    "drops its secure links, so the other players see the session end");
+ 
+ namespace rex {
+ namespace kernel {
+@@ -216,6 +221,55 @@
+     out[i] = static_cast<uint8_t>(engine());
+   }
+ }
++
++// TENCHUZ: the title's TCP connections (connected or accepted), by socket
++// handle. On a console, unregistering a session key drops the secure links
++// made with it, so a peer's recv() sees the connection end. Plain sockets
++// stay up, and after a System Link mission the host and the players each
++// wait for the other's connection to drop. XNetUnregisterKey shuts these
++// down to match.
++std::mutex tcp_sockets_mutex;
++std::vector<uint32_t> tcp_sockets;
++
++bool IsStreamSocket(XSocket* socket) {
++  int type = 0;
++#if REX_PLATFORM_WIN32
++  int len = sizeof(type);
++  if (getsockopt(static_cast<SOCKET>(socket->native_handle()), SOL_SOCKET, SO_TYPE,
++                 reinterpret_cast<char*>(&type), &len) != 0) {
++    return false;
++  }
++#else
++  socklen_t len = sizeof(type);
++  if (getsockopt(static_cast<int>(socket->native_handle()), SOL_SOCKET, SO_TYPE, &type,
++                 &len) != 0) {
++    return false;
++  }
++#endif
++  return type == SOCK_STREAM;
++}
++
++void NoteTcpSocket(XSocket* socket) {
++  if (!IsStreamSocket(socket)) return;
++  std::lock_guard lock(tcp_sockets_mutex);
++  const uint32_t handle = socket->handle();
++  if (std::find(tcp_sockets.begin(), tcp_sockets.end(), handle) == tcp_sockets.end()) {
++    tcp_sockets.push_back(handle);
++  }
++}
++
++void ForgetTcpSocket(uint32_t handle) {
++  std::lock_guard lock(tcp_sockets_mutex);
++  std::erase(tcp_sockets, handle);
++}
++
++int LastSocketError() {
++#if REX_PLATFORM_WIN32
++  return WSAGetLastError();
++#else
++  return errno;
++#endif
++}
+ }  // namespace
+ 
+ 
+@@ -842,6 +896,8 @@
+     return -1;
+   }
+ 
++  NetTrace("closesocket({:08X})", (uint32_t)socket_handle);
++  ForgetTcpSocket(socket_handle);
+   // TODO: Absolutely delete this object. It is no longer valid after calling
+   // closesocket.
+   socket->Close();
+@@ -858,6 +914,7 @@
+   }
+ 
+   auto ret = socket->Shutdown(how);
++  NetTrace("shutdown({:08X}, {}) = {}", (uint32_t)socket_handle, (int32_t)how, ret);
+   if (ret == -1) {
+ #if REX_PLATFORM_WIN32
+     uint32_t error_code = WSAGetLastError();
+@@ -950,6 +1007,9 @@
+              NetIp(uint32_t(d[2]) << 24 | uint32_t(d[3]) << 16 | uint32_t(d[4]) << 8 | d[5]),
+              uint32_t(d[0]) << 8 | d[1], status);
+   }
++  // A non-blocking connect reports "would block" and finishes later; keep it
++  // either way.
++  NoteTcpSocket(socket.get());
+   if (XFAILED(status)) {
+     XThread::SetLastError(xboxkrnl::xeRtlNtStatusToDosError(status));
+     return -1;
+@@ -1000,6 +1060,7 @@
+     *addrlen_ptr = native_len;
+ 
+     NetTrace("accept({:08X}) = {:08X}", (uint32_t)socket_handle, new_socket->handle());
++    NoteTcpSocket(new_socket.get());
+     return new_socket->handle();
+   } else {
+ #if REX_PLATFORM_WIN32
+@@ -1139,6 +1200,21 @@
+   }
+ 
+   int ret = socket->Recv(buf_ptr, buf_len, flags);
++  // TENCHUZ: log the connection ending (0) and real errors; "would block"
++  // (WSAEWOULDBLOCK 10035 / EAGAIN) happens on every poll and is skipped.
++  if (ret == 0) {
++    NetTrace("recv({:08X}) = 0 (connection closed by the other side)", (uint32_t)socket_handle);
++  } else if (ret < 0) {
++    const int error = LastSocketError();
++#if REX_PLATFORM_WIN32
++    const bool would_block = error == WSAEWOULDBLOCK;
++#else
++    const bool would_block = error == EAGAIN || error == EWOULDBLOCK;
++#endif
++    if (!would_block) {
++      NetTrace("recv({:08X}) = -1, error {}", (uint32_t)socket_handle, error);
++    }
++  }
+ #if REX_PLATFORM_WIN32
+   // TENCHUZ: report the error (e.g. WSAEWOULDBLOCK) like recvfrom does;
+   // without it the title read a stale error and dropped TCP connections.
+@@ -1392,6 +1468,20 @@
+ 
+ u32 NetDll_XNetUnregisterKey_entry(u32 caller, mapped_void key_id) {
+   NetTrace("XNetUnregisterKey(id {})", key_id ? NetHex(key_id, 8) : std::string("-"));
++  if (REXCVAR_GET(net_unregister_drops_tcp)) {
++    std::vector<uint32_t> handles;
++    {
++      std::lock_guard lock(tcp_sockets_mutex);
++      handles.swap(tcp_sockets);
++    }
++    for (uint32_t handle : handles) {
++      auto socket = REX_KERNEL_OBJECTS()->LookupObject<XSocket>(handle);
++      if (!socket) continue;
++      // 2 = both directions: the peer's recv() returns 0, ours fails.
++      const int ret = socket->Shutdown(2);
++      NetTrace("XNetUnregisterKey: shut down TCP {:08X} = {}", handle, ret);
++    }
++  }
+   return 0;
+ }
+ 

@@ -15,6 +15,29 @@ Patch `0012-mouse-sensitivity.patch` extends `mnk_sensitivity` to 0.01–100x
 and clamps mouse deltas before integer conversion to avoid overflow at high
 sensitivity. F6 and the launcher expose the same range. No timing code changes.
 
+## System Link and window patches (2026-10-28)
+
+Apply after patches 1–12, rebuild/install the SDK, then relink the game.
+
+Patch `0013-system-link-session-teardown.patch` (`xam_net.cpp`): on a console,
+`XNetUnregisterKey` drops the connections made with that session key. The
+runtime only logged it, so after a mission both players waited on a black screen
+for the other's TCP connection to close. The title's TCP sockets (from
+`connect`/`accept`) are now shut down when the key is unregistered (cvar
+`net_unregister_drops_tcp`, default on). `net_trace` also logs `closesocket`,
+`shutdown`, connection closes and real `recv` errors.
+
+Patch `0014-message-box-input-and-resize.patch` (`xam_ui.cpp`, `xam_input.cpp`,
+`xam_module.cpp`, `window_sdl.cpp/.h`):
+- System message boxes ("Cut off from a session") can be answered with
+  Enter/Space or controller A, and Left/Right or the d-pad change the
+  selection. While one is open, the title gets no controller input, as on a
+  console.
+- After a window resize, Windows could show the picture offset up and left by
+  the window frame until the window moved, so the overlay no longer lined up
+  with the mouse. The window is now nudged 1 px and back once the resize ends
+  (cvar `window_reposition_after_resize`, default on).
+
 ## Pinned SDK
 
 - **Repository**: https://github.com/rexglue/rexglue-sdk

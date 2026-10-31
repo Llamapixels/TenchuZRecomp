@@ -38,6 +38,8 @@ git; never share it).
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0010-overlay-layout.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0011-explicit-video-mode.patch
    git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0012-mouse-sensitivity.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0013-system-link-session-teardown.patch
+   git apply ..\TenchuZRecomp\tenchuz-recomp\sdk_patches\0014-message-box-input-and-resize.patch
    ```
    (adjust the path to where you cloned this repository).
 3. Configure once with the SDK's `win-amd64` preset and Vulkan turned on
@@ -75,6 +77,7 @@ it refuses to include any). The version comes from `tenchuz-recomp/src/version.h
 - `tenchuz-recomp/src/`: the game-specific code (hooks, F6 menu, online, mods, shader presets, setup paths).
 - `tenchuz-recomp/tenchuz_manifest.toml`: function boundaries and entry points for the recompiler.
 - `tenchuz-recomp/sdk_patches/`: changes to the ReXGlue SDK (shader overrides, System Link over IP, menu keys,
-  a recompiler fix, keyboard modifier keys, Vulkan shader fixes, DirectInput off, HUD hiding).
+  a recompiler fix, keyboard modifier keys, Vulkan shader fixes, DirectInput off, HUD hiding, System Link
+  session teardown, message boxes without a mouse, overlay placement after a resize).
 - `tools/`: build, release, setup and analysis scripts.
 - `docs/`: guides; `docs/development-notes.md` has older development notes.

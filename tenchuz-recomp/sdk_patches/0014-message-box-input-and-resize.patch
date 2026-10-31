@@ -1,0 +1,305 @@
+--- a/include/rex/ui/window_sdl.h
++++ b/include/rex/ui/window_sdl.h
+@@ -79,6 +79,20 @@
+   // expect. Never zero.
+   float GetPixelDensity() const;
+ 
++  // TENCHUZ: re-reads the window's size in pixels and reports it if it
++  // changed. The size event can be missed while Windows runs its resize loop,
++  // leaving the overlay laid out for the old size (the drawing is stretched
++  // to the new size, so the mouse no longer lines up with it).
++  void SyncPixelSize(WindowDestructionReceiver& destruction_receiver);
++
++  // TENCHUZ: after a resize, Windows can keep showing the picture offset by
++  // the window frame (up and left) until the window is moved. Once the size
++  // has settled, nudge the window by a pixel and back, as moving it by hand
++  // does. 0 = nothing pending; otherwise the SDL_GetTicks() time to do it.
++  void NoteResizeForReposition();
++  void RepositionAfterResizeIfDue();
++  uint64_t reposition_due_ms_ = 0;
++
+   SDL_Window* sdl_window_ = nullptr;
+   SDL_WindowID sdl_window_id_ = 0;
+   std::atomic<bool> paint_pending_{false};
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -40,6 +40,12 @@
+ #include <rex/ui/surface_gnulinux.h>
+ #endif
+ 
++// TENCHUZ: see WindowSDL::RepositionAfterResizeIfDue.
++REXCVAR_DEFINE_BOOL(window_reposition_after_resize, true, "UI",
++                    "After the window is resized, nudge it by a pixel and back so Windows "
++                    "redraws the picture in the right place (fixes the overlay not lining "
++                    "up with the mouse after a resize)");
++
+ namespace rex::ui {
+ 
+ namespace {
+@@ -277,6 +283,19 @@
+   return true;
+ }
+ 
++void WindowSDL::SyncPixelSize(WindowDestructionReceiver& destruction_receiver) {
++  if (!sdl_window_) {
++    return;
++  }
++  int pixel_width = 0;
++  int pixel_height = 0;
++  if (!SDL_GetWindowSizeInPixels(sdl_window_, &pixel_width, &pixel_height) || pixel_width <= 0 ||
++      pixel_height <= 0) {
++    return;
++  }
++  OnActualSizeUpdate(uint32_t(pixel_width), uint32_t(pixel_height), destruction_receiver);
++}
++
+ float WindowSDL::GetPixelDensity() const {
+   float density = sdl_window_ ? SDL_GetWindowPixelDensity(sdl_window_) : 1.0f;
+   return density > 0.0f ? density : 1.0f;
+@@ -436,13 +455,51 @@
+ 
+ void WindowSDL::HandlePaintEvent() {
+   paint_pending_.store(false, std::memory_order_release);
++  RepositionAfterResizeIfDue();  // TENCHUZ
+   OnPaint();
+ }
+ 
++void WindowSDL::NoteResizeForReposition() {
++  if (REXCVAR_GET(window_reposition_after_resize)) {
++    reposition_due_ms_ = SDL_GetTicks() + 300;
++  }
++}
++
++void WindowSDL::RepositionAfterResizeIfDue() {
++  if (!reposition_due_ms_ || !sdl_window_ || SDL_GetTicks() < reposition_due_ms_) {
++    return;
++  }
++#if REX_PLATFORM_WIN32
++  // Still dragging the edge: wait until the button is released.
++  if (GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON) & 0x8000) {
++    reposition_due_ms_ = SDL_GetTicks() + 100;
++    return;
++  }
++  reposition_due_ms_ = 0;
++  SDL_WindowFlags flags = SDL_GetWindowFlags(sdl_window_);
++  if (flags & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_MAXIMIZED)) {
++    return;
++  }
++  HWND hwnd = static_cast<HWND>(SDL_GetPointerProperty(
++      SDL_GetWindowProperties(sdl_window_), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
++  RECT rect;
++  if (!hwnd || !GetWindowRect(hwnd, &rect)) {
++    return;
++  }
++  const UINT keep = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
++  SetWindowPos(hwnd, nullptr, rect.left + 1, rect.top, 0, 0, keep);
++  SetWindowPos(hwnd, nullptr, rect.left, rect.top, 0, 0, keep | SWP_FRAMECHANGED);
++  REXLOG_DEBUG("Window nudged after a resize to refresh its picture position");
++#else
++  reposition_due_ms_ = 0;
++#endif
++}
++
+ void WindowSDL::HandleWindowEvent(SDL_Event& event) {
+   WindowDestructionReceiver destruction_receiver(this);
+   switch (event.type) {
+     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
++      NoteResizeForReposition();  // TENCHUZ
+       OnActualSizeUpdate(uint32_t(event.window.data1), uint32_t(event.window.data2),
+                          destruction_receiver);
+       break;
+@@ -461,8 +518,13 @@
+                                    SizeToLogical(uint32_t(event.window.data2)));
+ #endif
+       }
++      SyncPixelSize(destruction_receiver);  // TENCHUZ
+       break;
+     }
++    // TENCHUZ: maximizing changes the size without always sending a size event.
++    case SDL_EVENT_WINDOW_MAXIMIZED:
++      SyncPixelSize(destruction_receiver);
++      break;
+     case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED: {
+       UISetupEvent e(this);
+       OnDpiChanged(e, destruction_receiver);
+@@ -488,6 +550,9 @@
+       break;
+     case SDL_EVENT_WINDOW_RESTORED:
+       OnRestored(destruction_receiver);
++      if (!destruction_receiver.IsWindowDestroyed()) {
++        SyncPixelSize(destruction_receiver);  // TENCHUZ, as for maximize
++      }
+       break;
+     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+       // SDL destroys nothing on its own; this is the veto point.
+@@ -554,6 +619,12 @@
+   WindowDestructionReceiver destruction_receiver(this);
+   switch (event.type) {
+     case SDL_EVENT_MOUSE_MOTION: {
++      // TENCHUZ: make sure the overlay is laid out for the current size
++      // before it hit-tests this position (cheap; does nothing if unchanged).
++      SyncPixelSize(destruction_receiver);
++      if (destruction_receiver.IsWindowDestroyed()) {
++        return;
++      }
+       if (GetCursorVisibility() == CursorVisibility::kAutoHidden) {
+         SDL_ShowCursor();
+         RearmCursorAutoHideTimer();
+--- a/src/kernel/xam/xam_module.cpp
++++ b/src/kernel/xam/xam_module.cpp
+@@ -29,6 +29,11 @@
+   return xam_dialogs_shown_ > 0;
+ }
+ 
++// TENCHUZ: controller buttons pressed while a system dialog is open
++// (X_INPUT_GAMEPAD_* bits), collected by XamInputGetState and read by the
++// dialogs, so a message box can be answered with the controller.
++std::atomic<uint32_t> xam_ui_buttons_pressed_ = {0};
++
+ XamModule::XamModule(Runtime* emulator, KernelState* kernel_state)
+     : KernelModule(kernel_state, "xe:\\xam.xex"), loader_data_() {
+   RegisterExportTable(export_resolver_);
+--- a/src/kernel/xam/xam_input.cpp
++++ b/src/kernel/xam/xam_input.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <rex/input/input.h>
+ #include <rex/input/input_system.h>
+ #include <rex/kernel/xam/private.h>
+@@ -34,6 +35,8 @@
+ constexpr uint32_t XINPUT_FLAG_GAMEPAD = 0x01;
+ constexpr uint32_t XINPUT_FLAG_ANY_USER = 1 << 30;
+ 
++extern std::atomic<uint32_t> xam_ui_buttons_pressed_;  // TENCHUZ, xam_module.cpp
++
+ rex::input::InputSystem* input_system() {
+   return static_cast<rex::input::InputSystem*>(REX_KERNEL_STATE()->emulator()->input_system());
+ }
+@@ -112,7 +115,30 @@
+   }
+ 
+   auto* is = input_system();
+-  return is->GetState(actual_user_index, input_state);
++  X_RESULT result = is->GetState(actual_user_index, input_state);
++
++  // TENCHUZ: while a system dialog (message box etc.) is open, its buttons
++  // are answered with the controller: hand new presses to the dialog and,
++  // as on a console, give the title no input until the dialog closes.
++  if (result == X_ERROR_SUCCESS && input_state && actual_user_index < 4) {
++    static std::atomic<uint16_t> last_buttons[4] = {};
++    const uint16_t buttons = input_state->gamepad.buttons;
++    const uint16_t pressed =
++        static_cast<uint16_t>(buttons & ~last_buttons[actual_user_index].exchange(buttons));
++    if (xeXamIsUIActive()) {
++      if (pressed) {
++        xam_ui_buttons_pressed_.fetch_or(pressed);
++      }
++      input_state->gamepad.buttons = 0;
++      input_state->gamepad.left_trigger = 0;
++      input_state->gamepad.right_trigger = 0;
++      input_state->gamepad.thumb_lx = 0;
++      input_state->gamepad.thumb_ly = 0;
++      input_state->gamepad.thumb_rx = 0;
++      input_state->gamepad.thumb_ry = 0;
++    }
++  }
++  return result;
+ }
+ 
+ // https://msdn.microsoft.com/en-us/library/windows/desktop/microsoft.directx_sdk.reference.xinputsetstate(v=vs.85).aspx
+--- a/src/kernel/xam/xam_ui.cpp
++++ b/src/kernel/xam/xam_ui.cpp
+@@ -9,6 +9,8 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <algorithm>
++#include <atomic>
+ #include <rex/logging.h>
+ #include <rex/runtime.h>
+ #include <rex/string.h>
+@@ -53,6 +55,7 @@
+ // to create a listener (if they're insane enough do this).
+ 
+ extern std::atomic<int> xam_dialogs_shown_;
++extern std::atomic<uint32_t> xam_ui_buttons_pressed_;  // TENCHUZ, xam_module.cpp
+ 
+ class XamDialog : public rex::ui::ImGuiDialog {
+  public:
+@@ -231,6 +234,9 @@
+       ImGui::OpenPopup(title_.c_str());
+       has_opened_ = true;
+       first_draw = true;
++      // TENCHUZ: drop presses from before the box appeared.
++      xam_ui_buttons_pressed_.store(0);
++      selected_ = buttons_.empty() ? 0 : (std::min)(default_button_, uint32_t(buttons_.size() - 1));
+     }
+     if (ImGui::BeginPopupModal(title_.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+       if (description_.size()) {
+@@ -239,16 +245,51 @@
+       if (first_draw) {
+         ImGui::SetKeyboardFocusHere();
+       }
++
++      // TENCHUZ: answer with the keyboard or the controller, not only the
++      // mouse (the game can be holding the mouse for mouse look). Left/Right
++      // or the d-pad pick a button; Enter, Space or A press it.
++      const uint32_t pad = xam_ui_buttons_pressed_.exchange(0);
++      const uint32_t count = uint32_t(buttons_.size());
++      bool activate = false;
++      if (count) {
++        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || (pad & 0x0004)) {  // DPAD_LEFT
++          selected_ = (selected_ + count - 1) % count;
++        }
++        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || (pad & 0x0008)) {  // DPAD_RIGHT
++          selected_ = (selected_ + 1) % count;
++        }
++        activate = ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
++                   ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
++                   ImGui::IsKeyPressed(ImGuiKey_Space, false) || (pad & 0x1000);  // A
++      }
++
++      bool closed = false;
+       for (size_t i = 0; i < buttons_.size(); ++i) {
+-        if (ImGui::Button(buttons_[i].c_str())) {
++        const bool selected = i == selected_;
++        if (selected) {
++          ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
++        }
++        const bool clicked = ImGui::Button(buttons_[i].c_str());
++        if (selected) {
++          ImGui::PopStyleColor();
++        }
++        if (!closed && (clicked || (activate && selected))) {
+           chosen_button_ = static_cast<uint32_t>(i);
+-          ImGui::CloseCurrentPopup();
+-          Close();
++          closed = true;
+         }
+         ImGui::SameLine();
+       }
++      ImGui::NewLine();
++      if (count) {
++        ImGui::TextDisabled(count > 1 ? "Left/Right to choose, Enter or A to select"
++                                      : "Press Enter or A");
++      }
+       ImGui::Spacing();
+-      ImGui::Spacing();
++      if (closed) {
++        ImGui::CloseCurrentPopup();
++        Close();
++      }
+       ImGui::EndPopup();
+     } else {
+       Close();
+@@ -262,6 +303,7 @@
+   std::vector<std::string> buttons_;
+   uint32_t default_button_ = 0;
+   uint32_t chosen_button_ = 0;
++  uint32_t selected_ = 0;  // TENCHUZ: button highlighted for keyboard/controller
+ };
+ 
+ // https://www.se7ensins.com/forums/threads/working-xshowmessageboxui.844116/
