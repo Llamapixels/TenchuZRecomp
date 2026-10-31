@@ -180,13 +180,47 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
     const ImVec2 available((std::max)(240.0f, io.DisplaySize.x - 16),
                            (std::max)(180.0f, io.DisplaySize.y - 16));
     ImGui::SetNextWindowSizeConstraints(ImVec2(240, 180), available);
-    ImGui::SetNextWindowSize(ImVec2((std::min)(760 * menu_scale, available.x),
-                                    (std::min)(560 * menu_scale, available.y)),
-                             ImGuiCond_FirstUseEver);
+    // The size the player wants (the default, or what they last dragged it
+    // to). A smaller game window only shrinks the menu for as long as it has
+    // to: when the game window grows again, the menu grows back, and it is
+    // kept fully inside the game window so its title bar and resize corner
+    // can always be reached.
+    if (menu_wanted_size_.x <= 0 || menu_wanted_size_.y <= 0) {
+      menu_wanted_size_ = ImVec2(760 * menu_scale, 560 * menu_scale);
+    }
+    const bool display_changed = io.DisplaySize.x != menu_last_display_.x ||
+                                 io.DisplaySize.y != menu_last_display_.y;
+    if (!menu_placed_) {
+      ImGui::SetNextWindowSize(ImVec2((std::min)(menu_wanted_size_.x, available.x),
+                                      (std::min)(menu_wanted_size_.y, available.y)),
+                               ImGuiCond_FirstUseEver);
+    } else if (display_changed) {
+      const ImVec2 size((std::min)(menu_wanted_size_.x, available.x),
+                        (std::min)(menu_wanted_size_.y, available.y));
+      ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+      const ImVec2 limit((std::max)(8.0f, io.DisplaySize.x - size.x - 8),
+                         (std::max)(8.0f, io.DisplaySize.y - size.y - 8));
+      ImGui::SetNextWindowPos(ImVec2(std::clamp(menu_last_pos_.x, 8.0f, limit.x),
+                                     std::clamp(menu_last_pos_.y, 8.0f, limit.y)),
+                              ImGuiCond_Always);
+    }
+    menu_last_display_ = io.DisplaySize;
     if (!ImGui::Begin("Tenchu Z v" TENCHUZ_VERSION " (F6)###Tenchu Z (F6)", &visible_,
                       ImGuiWindowFlags_NoCollapse)) {
       ImGui::End();
       return;
+    }
+    {
+      const ImVec2 size = ImGui::GetWindowSize();
+      // Only a size the player chose counts; one forced by a smaller game
+      // window does not replace what they want.
+      if (menu_placed_ && !display_changed &&
+          (size.x != menu_last_size_.x || size.y != menu_last_size_.y)) {
+        menu_wanted_size_ = size;
+      }
+      menu_last_size_ = size;
+      menu_last_pos_ = ImGui::GetWindowPos();
+      menu_placed_ = true;
     }
 
     if (ImGui::BeginTabBar("tabs")) {
@@ -1986,6 +2020,12 @@ class CheatMenuDialog : public rex::ui::ImGuiDialog {
   std::function<void()> frame_hook_;
   std::string status_;
   bool visible_ = false;
+  // F6 menu size and position across game window resizes (see OnDraw).
+  ImVec2 menu_wanted_size_{0, 0};
+  ImVec2 menu_last_size_{0, 0};
+  ImVec2 menu_last_pos_{60, 60};
+  ImVec2 menu_last_display_{0, 0};
+  bool menu_placed_ = false;
   char exact_buf_[32] = {0};
   char profile_name_[49] = {0};
   char watch_addr_buf_[32] = {0};
